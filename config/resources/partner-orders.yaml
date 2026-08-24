@@ -1,0 +1,61 @@
+apiVersion: fluss-sync.io/v1
+kind: SyncSource
+metadata:
+  name: partner-orders
+spec:
+  observability:
+    lineage: true
+    metrics: true
+    log: true
+    validation: true
+  security:
+    roles:
+      - "sales-write-role"
+  tag:
+    - "sales"
+    - "csv"
+    - "event-stream"
+  contact:
+    owner: "@avik"
+    support:
+      - "#data-eng"
+
+  watch:
+    path: /watch/partner-orders
+    filePattern: "*.csv"
+    stability:
+      quietPeriodMs: 5000
+
+  format:
+    type: delimited
+    delimiter: ","
+    quoteChar: "\""
+    escapeChar: "\""
+    hasHeader: true
+    columns:
+      - name: order_id
+        type: STRING
+      - name: order_ts
+        type: TIMESTAMP
+      - name: amount_cents
+        type: BIGINT
+      - name: currency
+        type: STRING
+
+  validation:
+    mode: FULL
+    sampleSize: 1000
+
+  destination:
+    database: sales
+    table: partner_orders_raw
+    tableType: LOG
+    primaryKey: []
+
+  onSuccess:
+    action: ARCHIVE
+    archivePath: "/watch/partner-orders/_processed/{yyyy}/{MM}/{dd}"
+
+  onFailure:
+    action: REJECT
+    rejectPath: "/watch/partner-orders/_rejected"

@@ -1,0 +1,22 @@
+services:
+  fluss-sync:
+    build:
+      context: ../..
+      dockerfile: app/sync/Dockerfile
+    depends_on:
+      - tablet-server
+    environment:
+      FLUSS_BOOTSTRAP_SERVERS: "tablet-server:9123"
+    volumes:
+      - ../resources:/config/resources:ro
+      - ../apps/sync/application.yaml:/config/application.yaml:ro
+      - ../../watch:/watch
+      - fluss-sync-state:/state
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  fluss-sync-state:

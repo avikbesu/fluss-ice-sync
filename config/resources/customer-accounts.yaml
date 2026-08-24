@@ -1,0 +1,64 @@
+apiVersion: fluss-sync.io/v1
+kind: SyncSource
+metadata:
+  name: customer-accounts
+spec:
+  observability:
+    lineage: true
+    metrics: true
+    log: true
+    validation: true
+  security:
+    roles:
+      - "crm-write-role"
+  tag:
+    - "crm"
+    - "csv"
+    - "keyed-state"
+  contact:
+    owner: "@avik"
+    support:
+      - "#data-eng"
+      - "@user2"
+
+  watch:
+    path: /watch/customer-accounts
+    filePattern: "*.csv"
+    stability:
+      quietPeriodMs: 5000
+
+  format:
+    type: delimited
+    delimiter: ","
+    quoteChar: "\""
+    escapeChar: "\""
+    hasHeader: true
+    columns:
+      - name: account_id
+        type: STRING
+      - name: full_name
+        type: STRING
+      - name: email
+        type: STRING
+      - name: plan_tier
+        type: STRING
+      - name: updated_at
+        type: TIMESTAMP
+
+  validation:
+    mode: FULL
+    sampleSize: 1000
+
+  destination:
+    database: crm
+    table: customer_accounts
+    tableType: PRIMARY_KEY
+    primaryKey:
+      - account_id
+
+  onSuccess:
+    action: DELETE
+
+  onFailure:
+    action: REJECT
+    rejectPath: "/watch/customer-accounts/_rejected"

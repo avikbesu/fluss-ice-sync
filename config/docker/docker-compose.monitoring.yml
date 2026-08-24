@@ -1,0 +1,7 @@
+# Placeholder in v0 — reserved for a metrics/logging stack (e.g. Prometheus +
+# Grafana) once the Observability section's "v0 does not mandate a specific
+# metrics backend" is resolved. Kept as its own file, and always passed to
+# `docker compose` alongside docker-compose.infra.yml/docker-compose.app.yml
+# by the Makefile, so the naming convention and wiring are in place ahead of
+# time. Intentionally defines no services yet.
+services: {}
