@@ -60,8 +60,8 @@ public final class FileProcessor {
 
         log.info("{}: STREAMING {}", sourceName, file);
         SyncSourceConfig.Destination destination = config.spec.destination;
-        sink.createDatabaseAndTableIfMissing(destination, config.spec.format);
         try {
+            sink.createDatabaseAndTableIfMissing(destination, config.spec.format, appConfig);
             if (result.materializedRows() != null) {
                 for (Row row : result.materializedRows()) {
                     sink.write(destination, row);
@@ -76,7 +76,7 @@ public final class FileProcessor {
             log.warn("{}: row failed to parse mid-stream for {}: {}", sourceName, file, e.getMessage());
             return reject(file, hash);
         } catch (RuntimeException e) {
-            log.warn("{}: Fluss write failed for {}, leaving file in place", sourceName, file, e);
+            log.warn("{}: Fluss table setup or write failed for {}, leaving file in place", sourceName, file, e);
             return FileState.FAILED_RETRYING;
         }
 

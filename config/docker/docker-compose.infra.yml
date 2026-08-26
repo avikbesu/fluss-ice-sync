@@ -2,20 +2,88 @@ services:
   zookeeper:
     image: zookeeper:3.9.2
 
+  # ${ICEBERG_CATALOG_*} values are exported by the root Makefile — the
+  # single source of truth. The `:-` fallbacks here only guard against
+  # someone invoking `docker compose` directly (bypassing `make`), which
+  # silently substituted empty strings and broke a running stack (hit
+  # directly) before these were added; the fallbacks must be kept in sync
+  # with the Makefile's values, not treated as an independent config.
+  iceberg-catalog-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${ICEBERG_CATALOG_DB:-iceberg_catalog}
+      POSTGRES_USER: ${ICEBERG_CATALOG_USER:-iceberg}
+      POSTGRES_PASSWORD: ${ICEBERG_CATALOG_PASSWORD:-iceberg}
+    volumes:
+      - iceberg-catalog-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${ICEBERG_CATALOG_USER:-iceberg} -d ${ICEBERG_CATALOG_DB:-iceberg_catalog}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # coordinator-server, tablet-server, flink-jobmanager/taskmanager, and
+  # trino-coordinator each write to the shared lakehouse-warehouse volume
+  # as a different container UID (Fluss's own image user, `flink`,
+  # `trino`). A one-time `chmod -R 777` isn't enough — it only covers what
+  # exists at that instant, and each writer keeps creating new
+  # directories afterward (e.g. Iceberg's per-table `data/__bucket=N`
+  # dirs), which inherit that writer's own default mode and stay closed
+  # to the others (hit directly: a Flink write failed with "Permission
+  # denied" on a directory a *different* container had created moments
+  # earlier). A default ACL makes every new file/dir under the mount
+  # inherit world-rwx regardless of which UID creates it.
+  lakehouse-warehouse-init:
+    image: alpine:3.20
+    # Every ACL entry (user/group/mask/other) must be set explicitly — a
+    # partial `-m o::rwx` update lets setfacl auto-fill the unspecified
+    # user/group/mask entries from the directory's *current* mode bits,
+    # silently locking in whatever narrower permissions already existed
+    # (hit directly: `other` still came out r-x, not rwx, after doing
+    # exactly that).
+    command: sh -c "apk add --no-cache acl >/dev/null && setfacl -R -d -m u::rwx,g::rwx,o::rwx,m::rwx /lakehouse/warehouse && setfacl -R -m u::rwx,g::rwx,o::rwx,m::rwx /lakehouse/warehouse"
+    volumes:
+      - lakehouse-warehouse:/lakehouse/warehouse
+
   coordinator-server:
-    image: apache/fluss:0.9.1-incubating
+    build:
+      context: fluss
     command: coordinatorServer
     depends_on:
-      - zookeeper
+      zookeeper:
+        condition: service_started
+      iceberg-catalog-db:
+        condition: service_healthy
+      lakehouse-warehouse-init:
+        condition: service_completed_successfully
     environment:
       - |
         FLUSS_PROPERTIES=
         zookeeper.address: zookeeper:2181
         bind.listeners: FLUSS://coordinator-server:9123
         remote.data.dir: /tmp/fluss/remote-data
+        datalake.format: iceberg
+        datalake.iceberg.type: jdbc
+        datalake.iceberg.uri: ${ICEBERG_CATALOG_URI:-jdbc:postgresql://iceberg-catalog-db:5432/iceberg_catalog}
+        datalake.iceberg.jdbc.user: ${ICEBERG_CATALOG_USER:-iceberg}
+        datalake.iceberg.jdbc.password: ${ICEBERG_CATALOG_PASSWORD:-iceberg}
+        datalake.iceberg.warehouse: ${ICEBERG_WAREHOUSE:-file:///lakehouse/warehouse}
+    volumes:
+      - lakehouse-warehouse:/lakehouse/warehouse
+      # remote.data.dir (above) holds lake-tiering bookkeeping (e.g. the
+      # per-bucket .offsets file each tiering commit writes) that the
+      # coordinator writes and the tablet-server (bucket leader) later
+      # reads back to resume tiering. Without a shared volume each
+      # container gets its own private copy, so any read from the other
+      # side 404s forever after the very first commit (hit directly: every
+      # tiering pass after the first failed with a FileNotFoundException
+      # for a file that unquestionably existed — just on the wrong
+      # container's disk).
+      - fluss-remote-data:/tmp/fluss/remote-data
 
   tablet-server:
-    image: apache/fluss:0.9.1-incubating
+    build:
+      context: fluss
     command: tabletServer
     depends_on:
       - coordinator-server
@@ -26,3 +94,17 @@ services:
         bind.listeners: FLUSS://tablet-server:9123
         data.dir: /tmp/fluss/data
         remote.data.dir: /tmp/fluss/remote-data
+        datalake.format: iceberg
+        datalake.iceberg.type: jdbc
+        datalake.iceberg.uri: ${ICEBERG_CATALOG_URI:-jdbc:postgresql://iceberg-catalog-db:5432/iceberg_catalog}
+        datalake.iceberg.jdbc.user: ${ICEBERG_CATALOG_USER:-iceberg}
+        datalake.iceberg.jdbc.password: ${ICEBERG_CATALOG_PASSWORD:-iceberg}
+        datalake.iceberg.warehouse: ${ICEBERG_WAREHOUSE:-file:///lakehouse/warehouse}
+    volumes:
+      - lakehouse-warehouse:/lakehouse/warehouse
+      - fluss-remote-data:/tmp/fluss/remote-data
+
+volumes:
+  lakehouse-warehouse:
+  iceberg-catalog-db-data:
+  fluss-remote-data:

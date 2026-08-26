@@ -51,6 +51,9 @@ spec:
     table: partner_orders_raw
     tableType: LOG
     primaryKey: []
+    lakehouse:
+      enabled: true
+      freshness: "30s"
 
   onSuccess:
     action: ARCHIVE

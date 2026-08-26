@@ -33,6 +33,8 @@ class SyncSourceConfigLoaderTest {
         assertThat(config.spec.format.columns).hasSize(4);
         assertThat(config.spec.validation.mode).isEqualTo(SyncSourceConfig.ValidationMode.FULL);
         assertThat(config.spec.onSuccess.action).isEqualTo(SyncSourceConfig.PostAction.ARCHIVE);
+        assertThat(config.spec.destination.lakehouse.enabled).isTrue();
+        assertThat(config.spec.destination.lakehouse.freshness).isEqualTo("30s");
     }
 
     @Test
@@ -42,6 +44,30 @@ class SyncSourceConfigLoaderTest {
         assertThat(config.spec.destination.tableType).isEqualTo(SyncSourceConfig.TableType.PRIMARY_KEY);
         assertThat(config.spec.destination.primaryKey).containsExactly("account_id");
         assertThat(config.spec.onSuccess.action).isEqualTo(SyncSourceConfig.PostAction.DELETE);
+        assertThat(config.spec.destination.lakehouse).isNull();
+    }
+
+    @Test
+    void resolvesLakehouseEnabledAndFreshnessAgainstApplicationConfigDefaults() {
+        ApplicationConfig appConfig = ApplicationConfig.defaults();
+        appConfig.spec.lakehouse.enabledByDefault = true;
+        appConfig.spec.lakehouse.defaultFreshness = "5m";
+
+        SyncSourceConfig.Destination explicitTrue = new SyncSourceConfig.Destination();
+        explicitTrue.lakehouse = new SyncSourceConfig.Lakehouse();
+        explicitTrue.lakehouse.enabled = true;
+        explicitTrue.lakehouse.freshness = "10s";
+        assertThat(explicitTrue.isLakehouseEnabled(appConfig)).isTrue();
+        assertThat(explicitTrue.lakehouseFreshness(appConfig)).isEqualTo("10s");
+
+        SyncSourceConfig.Destination explicitFalse = new SyncSourceConfig.Destination();
+        explicitFalse.lakehouse = new SyncSourceConfig.Lakehouse();
+        explicitFalse.lakehouse.enabled = false;
+        assertThat(explicitFalse.isLakehouseEnabled(appConfig)).isFalse();
+
+        SyncSourceConfig.Destination omitted = new SyncSourceConfig.Destination();
+        assertThat(omitted.isLakehouseEnabled(appConfig)).isTrue();
+        assertThat(omitted.lakehouseFreshness(appConfig)).isEqualTo("5m");
     }
 
     @Test
@@ -68,5 +94,35 @@ class SyncSourceConfigLoaderTest {
                 """);
 
         assertThatThrownBy(() -> loader.load(file)).isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void rejectsInvalidLakehouseFreshness(@org.junit.jupiter.api.io.TempDir Path dir) throws Exception {
+        Path file = dir.resolve("bad-freshness.yaml");
+        java.nio.file.Files.writeString(file, """
+                apiVersion: fluss-sync.io/v1
+                kind: SyncSource
+                metadata:
+                  name: bad-freshness-source
+                spec:
+                  watch:
+                    path: /watch/bad
+                    filePattern: "*.csv"
+                  format:
+                    columns:
+                      - name: id
+                        type: STRING
+                  destination:
+                    database: db
+                    table: t
+                    tableType: LOG
+                    lakehouse:
+                      enabled: true
+                      freshness: "30x"
+                """);
+
+        assertThatThrownBy(() -> loader.load(file))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("freshness");
     }
 }

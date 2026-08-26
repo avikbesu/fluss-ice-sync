@@ -4,6 +4,8 @@ import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
 
+import org.apache.fluss.utils.TimeUtils;
+
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.DirectoryStream;
@@ -70,6 +72,15 @@ public final class SyncSourceConfigLoader {
                 && config.spec.onSuccess.archivePath == null) {
             throw new IllegalArgumentException(
                     "spec.onSuccess.archivePath is required when action is ARCHIVE in " + file);
+        }
+        if (config.spec.destination.lakehouse != null && config.spec.destination.lakehouse.freshness != null) {
+            try {
+                TimeUtils.parseDuration(config.spec.destination.lakehouse.freshness);
+            } catch (RuntimeException e) {
+                throw new IllegalArgumentException(
+                        "spec.destination.lakehouse.freshness '" + config.spec.destination.lakehouse.freshness
+                                + "' is not a valid duration in " + file, e);
+            }
         }
     }
 }

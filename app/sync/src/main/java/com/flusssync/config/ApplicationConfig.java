@@ -11,6 +11,7 @@ public class ApplicationConfig {
         public Parsing parsing = new Parsing();
         public Retention retention = new Retention();
         public Health health = new Health();
+        public Lakehouse lakehouse = new Lakehouse();
     }
 
     public static class Parsing {
@@ -28,6 +29,11 @@ public class ApplicationConfig {
         public boolean enabled = true;
         public int port = 8080;
         public String path = "/healthz";
+    }
+
+    public static class Lakehouse {
+        public boolean enabledByDefault = false;
+        public String defaultFreshness = "30s";
     }
 
     /** The default config used when no application.yaml is present. */

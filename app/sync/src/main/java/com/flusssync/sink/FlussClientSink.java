@@ -1,5 +1,6 @@
 package com.flusssync.sink;
 
+import com.flusssync.config.ApplicationConfig;
 import com.flusssync.config.SyncSourceConfig;
 import com.flusssync.process.Row;
 
@@ -8,6 +9,7 @@ import org.apache.fluss.client.admin.Admin;
 import org.apache.fluss.client.table.Table;
 import org.apache.fluss.client.table.writer.AppendWriter;
 import org.apache.fluss.client.table.writer.UpsertWriter;
+import org.apache.fluss.config.ConfigOptions;
 import org.apache.fluss.metadata.DatabaseDescriptor;
 import org.apache.fluss.metadata.Schema;
 import org.apache.fluss.metadata.TableDescriptor;
@@ -17,6 +19,7 @@ import org.apache.fluss.row.GenericRow;
 import org.apache.fluss.row.TimestampNtz;
 import org.apache.fluss.types.DataType;
 import org.apache.fluss.types.DataTypes;
+import org.apache.fluss.utils.TimeUtils;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -42,26 +45,20 @@ public final class FlussClientSink implements FlussSink {
     }
 
     @Override
-    public void createDatabaseAndTableIfMissing(SyncSourceConfig.Destination destination, SyncSourceConfig.Format format) {
-        tables.computeIfAbsent(key(destination), k -> createHandle(destination, format));
+    public void createDatabaseAndTableIfMissing(
+            SyncSourceConfig.Destination destination, SyncSourceConfig.Format format, ApplicationConfig appConfig) {
+        tables.computeIfAbsent(key(destination), k -> createHandle(destination, format, appConfig));
     }
 
-    private TableHandle createHandle(SyncSourceConfig.Destination destination, SyncSourceConfig.Format format) {
+    private TableHandle createHandle(
+            SyncSourceConfig.Destination destination, SyncSourceConfig.Format format, ApplicationConfig appConfig) {
         try {
             if (!admin.databaseExists(destination.database).get()) {
                 admin.createDatabase(destination.database, DatabaseDescriptor.builder().build(), true).get();
             }
             TablePath path = TablePath.of(destination.database, destination.table);
             if (!admin.tableExists(path).get()) {
-                Schema.Builder schemaBuilder = Schema.newBuilder();
-                for (SyncSourceConfig.Column column : format.columns) {
-                    schemaBuilder.column(column.name, toDataType(column.type));
-                }
-                if (destination.tableType == SyncSourceConfig.TableType.PRIMARY_KEY) {
-                    schemaBuilder.primaryKey(destination.primaryKey);
-                }
-                TableDescriptor descriptor = TableDescriptor.builder().schema(schemaBuilder.build()).build();
-                admin.createTable(path, descriptor, true).get();
+                admin.createTable(path, buildDescriptor(destination, format, appConfig), true).get();
             }
             Table table = connection.getTable(path);
             if (destination.tableType == SyncSourceConfig.TableType.PRIMARY_KEY) {
@@ -75,6 +72,33 @@ public final class FlussClientSink implements FlussSink {
             throw new IllegalStateException(
                     "Failed to prepare Fluss table " + destination.database + "." + destination.table, e.getCause());
         }
+    }
+
+    /**
+     * Builds the {@link TableDescriptor} a new destination table is created
+     * with, including the datalake-tiering properties from
+     * {@code destination.lakehouse} (see the v1 design doc's {@code SyncSource}
+     * schema addition). Pulled out of {@link #createHandle} so it can be
+     * exercised without a live Fluss cluster.
+     */
+    static TableDescriptor buildDescriptor(
+            SyncSourceConfig.Destination destination, SyncSourceConfig.Format format, ApplicationConfig appConfig) {
+        Schema.Builder schemaBuilder = Schema.newBuilder();
+        for (SyncSourceConfig.Column column : format.columns) {
+            schemaBuilder.column(column.name, toDataType(column.type));
+        }
+        if (destination.tableType == SyncSourceConfig.TableType.PRIMARY_KEY) {
+            schemaBuilder.primaryKey(destination.primaryKey);
+        }
+        TableDescriptor.Builder descriptorBuilder = TableDescriptor.builder().schema(schemaBuilder.build());
+        if (destination.isLakehouseEnabled(appConfig)) {
+            descriptorBuilder
+                    .property(ConfigOptions.TABLE_DATALAKE_ENABLED, true)
+                    .property(
+                            ConfigOptions.TABLE_DATALAKE_FRESHNESS,
+                            TimeUtils.parseDuration(destination.lakehouseFreshness(appConfig)));
+        }
+        return descriptorBuilder.build();
     }
 
     @Override

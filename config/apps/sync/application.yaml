@@ -14,3 +14,7 @@ spec:
     enabled: true
     port: 8080
     path: /healthz
+
+  lakehouse:
+    enabledByDefault: false
+    defaultFreshness: "30s"

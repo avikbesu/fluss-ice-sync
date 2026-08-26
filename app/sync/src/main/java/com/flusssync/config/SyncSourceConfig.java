@@ -93,6 +93,28 @@ public class SyncSourceConfig {
         public String table;
         public TableType tableType = TableType.LOG;
         public List<String> primaryKey = List.of();
+        public Lakehouse lakehouse;
+
+        /** Per-source override, falling back to {@code appConfig}'s cluster-wide default. */
+        public boolean isLakehouseEnabled(ApplicationConfig appConfig) {
+            if (lakehouse != null && lakehouse.enabled != null) {
+                return lakehouse.enabled;
+            }
+            return appConfig.spec.lakehouse.enabledByDefault;
+        }
+
+        /** Per-source override, falling back to {@code appConfig}'s cluster-wide default. */
+        public String lakehouseFreshness(ApplicationConfig appConfig) {
+            if (lakehouse != null && lakehouse.freshness != null) {
+                return lakehouse.freshness;
+            }
+            return appConfig.spec.lakehouse.defaultFreshness;
+        }
+    }
+
+    public static class Lakehouse {
+        public Boolean enabled;
+        public String freshness;
     }
 
     public enum PostAction {

@@ -1,5 +1,6 @@
 package com.flusssync.sink;
 
+import com.flusssync.config.ApplicationConfig;
 import com.flusssync.config.SyncSourceConfig;
 import com.flusssync.process.Row;
 
@@ -10,7 +11,8 @@ import com.flusssync.process.Row;
  */
 public interface FlussSink extends AutoCloseable {
 
-    void createDatabaseAndTableIfMissing(SyncSourceConfig.Destination destination, SyncSourceConfig.Format format);
+    void createDatabaseAndTableIfMissing(
+            SyncSourceConfig.Destination destination, SyncSourceConfig.Format format, ApplicationConfig appConfig);
 
     void write(SyncSourceConfig.Destination destination, Row row);
 

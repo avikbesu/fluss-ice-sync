@@ -1,0 +1,17 @@
+{
+  "catalogs": [
+    {
+      "user": "sales-read-role|crm-read-role",
+      "catalog": "iceberg",
+      "allow": "all"
+    }
+  ],
+  "schemas": [
+    { "user": "sales-read-role", "catalog": "iceberg", "schema": "sales", "owner": false },
+    { "user": "crm-read-role", "catalog": "iceberg", "schema": "crm", "owner": false }
+  ],
+  "tables": [
+    { "user": "sales-read-role", "catalog": "iceberg", "schema": "sales", "table": ".*", "privileges": ["SELECT"] },
+    { "user": "crm-read-role", "catalog": "iceberg", "schema": "crm", "table": ".*", "privileges": ["SELECT"] }
+  ]
+}

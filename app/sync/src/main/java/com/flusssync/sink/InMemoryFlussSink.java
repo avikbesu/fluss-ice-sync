@@ -1,5 +1,6 @@
 package com.flusssync.sink;
 
+import com.flusssync.config.ApplicationConfig;
 import com.flusssync.config.SyncSourceConfig;
 import com.flusssync.process.Row;
 
@@ -17,7 +18,8 @@ public final class InMemoryFlussSink implements FlussSink {
     private final Map<String, Integer> flushCounts = new ConcurrentHashMap<>();
 
     @Override
-    public void createDatabaseAndTableIfMissing(SyncSourceConfig.Destination destination, SyncSourceConfig.Format format) {
+    public void createDatabaseAndTableIfMissing(
+            SyncSourceConfig.Destination destination, SyncSourceConfig.Format format, ApplicationConfig appConfig) {
         createdTables.add(key(destination));
     }
 
