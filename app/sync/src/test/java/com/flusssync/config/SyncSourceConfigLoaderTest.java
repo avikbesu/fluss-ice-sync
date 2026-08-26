@@ -74,7 +74,7 @@ class SyncSourceConfigLoaderTest {
     void rejectsPrimaryKeyTableWithoutPrimaryKeyColumns(@org.junit.jupiter.api.io.TempDir Path dir) throws Exception {
         Path file = dir.resolve("bad.yaml");
         java.nio.file.Files.writeString(file, """
-                apiVersion: fluss-sync.io/v1
+                apiVersion: fluss-ice-sync.io/v1
                 kind: SyncSource
                 metadata:
                   name: bad-source
@@ -100,7 +100,7 @@ class SyncSourceConfigLoaderTest {
     void rejectsInvalidLakehouseFreshness(@org.junit.jupiter.api.io.TempDir Path dir) throws Exception {
         Path file = dir.resolve("bad-freshness.yaml");
         java.nio.file.Files.writeString(file, """
-                apiVersion: fluss-sync.io/v1
+                apiVersion: fluss-ice-sync.io/v1
                 kind: SyncSource
                 metadata:
                   name: bad-freshness-source

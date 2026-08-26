@@ -1,4 +1,4 @@
-apiVersion: fluss-sync.io/v1
+apiVersion: fluss-ice-sync.io/v1
 kind: SyncSource
 metadata:
   name: customer-accounts

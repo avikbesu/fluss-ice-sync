@@ -1,4 +1,4 @@
-# Querying fluss-sync data with Trino
+# Querying fluss-ice-sync data with Trino
 
 This is the practical how-to for reading tiered Fluss tables via Trino in
 this project's Docker Compose setup. For the design/architecture behind
@@ -12,9 +12,9 @@ guarantees), see
 make up
 ```
 
-This starts Fluss, fluss-sync, the Flink cluster, Trino, and the shared
+This starts Fluss, fluss-ice-sync, the Flink cluster, Trino, and the shared
 Postgres-backed Iceberg catalog. Wait for it to settle — `docker compose ps`
-should show `fluss-sync` and `trino-coordinator` as `healthy`.
+should show `fluss-ice-sync` and `trino-coordinator` as `healthy`.
 
 ## 2. Start the Lakehouse Tiering Service
 
@@ -127,8 +127,8 @@ crm-read-role ...` form instead (or editing the Makefile target).
 | Table exists but has 0 rows | Tiering job isn't running (`make lakehouse-submit` again) — check with `flink list` as in step 2 |
 | Row count froze after an initial commit and never advances, even though the tiering job still shows `RUNNING` | Check `docker logs <flink-jobmanager container> --since 5m \| grep FileNotFoundException` — if present, `/tmp/fluss/remote-data` isn't shared between `coordinator-server` and `tablet-server` (should be fixed by the `fluss-remote-data` volume in `docker-compose.infra.yml`; if you've hand-rolled a variant compose file without it, this is why) |
 | Table never appears at all | That source's `lakehouse.enabled` isn't `true` in its `config/resources/*.yaml` |
-| `fluss-sync` container exited on `make up` | Known startup race with `tablet-server` — rerun: `docker compose -f config/docker/docker-compose.infra.yml -f config/docker/docker-compose.app.yml up -d fluss-sync` |
+| `fluss-ice-sync` container exited on `make up` | Known startup race with `tablet-server` — rerun: `docker compose -f config/docker/docker-compose.infra.yml -f config/docker/docker-compose.app.yml up -d fluss-ice-sync` |
 
 To confirm data actually reached Fluss in the first place (before blaming
 Trino), watch `watch/partner-orders/_processed/` for the file to show up
-there — that means fluss-sync finished streaming it.
+there — that means fluss-ice-sync finished streaming it.

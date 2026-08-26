@@ -1,5 +1,5 @@
 services:
-  fluss-sync:
+  fluss-ice-sync:
     build:
       context: ../..
       dockerfile: app/sync/Dockerfile
@@ -11,7 +11,7 @@ services:
       - ../resources:/config/resources:ro
       - ../apps/sync/application.yaml:/config/application.yaml:ro
       - ../../watch:/watch
-      - fluss-sync-state:/state
+      - fluss-ice-sync-state:/state
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/healthz"]
       interval: 30s
@@ -19,4 +19,4 @@ services:
       retries: 3
 
 volumes:
-  fluss-sync-state:
+  fluss-ice-sync-state:

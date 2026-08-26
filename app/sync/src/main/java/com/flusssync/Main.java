@@ -26,7 +26,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-/** Wires the fluss-sync pipeline together and runs it until interrupted. */
+/** Wires the fluss-ice-sync pipeline together and runs it until interrupted. */
 public final class Main {
 
     private static final Logger log = LoggerFactory.getLogger(Main.class);

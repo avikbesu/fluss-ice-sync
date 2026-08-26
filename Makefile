@@ -45,7 +45,7 @@ down:
 	$(COMPOSE) down
 
 logs:
-	$(COMPOSE) logs -f fluss-sync
+	$(COMPOSE) logs -f fluss-ice-sync
 
 clean:
 	./gradlew clean

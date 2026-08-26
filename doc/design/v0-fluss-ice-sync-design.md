@@ -9,7 +9,7 @@
 
 ## Objective
 
-Build a configurable Java application, **fluss-sync**, that watches configured
+Build a configurable Java application, **fluss-ice-sync**, that watches configured
 local directory trees for new files, validates and parses each file against a
 per-source configuration, converts every line of a matching file into a stream
 record, and writes that stream into a configured [Apache Fluss](https://fluss.apache.org)
@@ -20,14 +20,14 @@ table.
 Watched folders are used as a low-friction drop point for data files (e.g.
 exports from external systems, partner feeds, batch reports) — the folder
 itself may be populated by any means (an SFTP/copy job, a scheduled export,
-a sync client such as Dropbox, or a person manually placing a file); fluss-sync
+a sync client such as Dropbox, or a person manually placing a file); fluss-ice-sync
 does not care how the file got there, only that it appears on the local
 filesystem path it is watching. Today there is no automated path from "a
 file lands in the folder" to "the data is queryable as a stream in Fluss."
 Getting data into Fluss requires a person to notice the file and run an ad
 hoc import.
 
-fluss-sync removes that manual step: once a source is configured, any file
+fluss-ice-sync removes that manual step: once a source is configured, any file
 that lands in its watched folder and matches the configured shape is
 automatically streamed into Fluss, with no per-file human action required.
 
@@ -53,7 +53,7 @@ automatically streamed into Fluss, with no per-file human action required.
 
 ## Non-Goals
 
-* Coordinating multiple fluss-sync replicas processing the same source
+* Coordinating multiple fluss-ice-sync replicas processing the same source
   (single-instance deployment only for v0; see Alternatives Considered).
 * Direct integration with any specific cloud storage/sync provider's API
   (webhooks or polling) — v0 is a pure local filesystem watcher; it relies on
@@ -78,7 +78,7 @@ flowchart TB
     EXT["File producer(s)<br/>(external — SFTP job, sync client,<br/>export job, manual copy, etc.)"]
     VOL[["Mounted volume<br/>/watch/&lt;source-name&gt;/..."]]
 
-    subgraph JVM["fluss-sync (JVM)"]
+    subgraph JVM["fluss-ice-sync (JVM)"]
         direction TB
         DW["DirectoryWatcher<br/>(WatchService per watched root)"]
         SR["SourceRouter"]
@@ -131,16 +131,16 @@ At a high level:
 ## Repository Layout
 
 ```
-fluss-sync/
+fluss-ice-sync/
 ├── app/
-│   └── sync/                    # fluss-sync application module (Java)
+│   └── sync/                    # fluss-ice-sync application module (Java)
 │       ├── src/main/java/...
 │       ├── src/test/java/...
 │       └── Dockerfile
 ├── config/
 │   ├── docker/
 │   │   ├── docker-compose.infra.yml       # ZooKeeper + Fluss CoordinatorServer/TabletServer
-│   │   ├── docker-compose.app.yml         # fluss-sync service
+│   │   ├── docker-compose.app.yml         # fluss-ice-sync service
 │   │   ├── docker-compose.monitoring.yml  # metrics/logging stack (placeholder in v0)
 │   │   └── .env.example
 │   ├── resources/               # SyncSource *.yaml configs (one per watched source)
@@ -166,7 +166,7 @@ fluss-sync/
 * `config/docker` and `config/resources` are deliberately separate from
   `app/`: neither is Java source, and keeping deployment assets and
   per-source configuration under one `config/` parent mirrors how they're
-  bind-mounted together into the `fluss-sync` container (see
+  bind-mounted together into the `fluss-ice-sync` container (see
   [Deployment](#deployment)).
 * `config/apps/sync/application.yaml` is the single global config file for
   the `sync` app — settings that apply across all sources rather than to
@@ -201,7 +201,7 @@ elsewhere, e.g. [trino-with-ice's `flow.yaml`](https://github.com/skhatri/trino-
 one top-level resource of `kind: SyncSource` per watched directory. Example:
 
 ```yaml
-apiVersion: fluss-sync.io/v1
+apiVersion: fluss-ice-sync.io/v1
 kind: SyncSource
 metadata:
   name: partner-orders
@@ -274,7 +274,7 @@ Field notes:
   not yet read it anywhere in the pipeline** — every source currently
   behaves as if all four flags are `true`; see [Deferred to v2](#deferred-to-v2).
 * `spec.security.roles` names the role(s) required to write to the
-  destination table, enforced wherever fluss-sync's own service identity is
+  destination table, enforced wherever fluss-ice-sync's own service identity is
   authorized against Fluss/cluster ACLs.
 * `spec.tag` and `spec.contact` are metadata-only — they don't affect
   processing, and are intended to flow into logs/metrics for ownership and
@@ -308,7 +308,7 @@ single global file, `config/apps/sync/application.yaml`, separate from the
 per-source `SyncSource` files:
 
 ```yaml
-apiVersion: fluss-sync.io/v1
+apiVersion: fluss-ice-sync.io/v1
 kind: ApplicationConfig
 spec:
   parsing:
@@ -341,7 +341,7 @@ spec:
 
 Whatever places a file into the watched folder (a sync client, an SFTP
 transfer, a large export job) may write it incrementally, so a `WatchService`
-create event does not mean the file is complete. fluss-sync uses a **quiet
+create event does not mean the file is complete. fluss-ice-sync uses a **quiet
 period** check: after an event, it polls the file's size/mtime every second
 and only hands the file to the `FileProcessor` once the size has been stable
 for `stability.quietPeriodMs`. This is a pragmatic heuristic (not a hard
@@ -357,8 +357,8 @@ treating a not-yet-written placeholder file as a validation failure.
 `DirectoryWatcher` registers each source's `watch.path` recursively, which
 would otherwise also observe files landing in that source's own
 `onSuccess.archivePath` and `onFailure.rejectPath` subfolders as
-fluss-sync moves files into them — re-triggering detection on files
-fluss-sync itself just placed there. To prevent this, the watcher excludes
+fluss-ice-sync moves files into them — re-triggering detection on files
+fluss-ice-sync itself just placed there. To prevent this, the watcher excludes
 any path under a configured `archivePath` or `rejectPath` (matched by
 prefix) from emitting `FileEvent`s, regardless of where those paths live
 relative to `watch.path`.
@@ -392,7 +392,7 @@ sources whose file shape is already well-trusted.
 
 ### Streaming into Fluss
 
-* On startup, and again lazily on first use of a source, fluss-sync uses the
+* On startup, and again lazily on first use of a source, fluss-ice-sync uses the
   Fluss `Admin` API to check whether `destination.database` /
   `destination.table` exists, creating them (with the schema derived from
   `format.columns`) if not.
@@ -427,11 +427,11 @@ sources whose file shape is already well-trusted.
 
 ### Processed-file ledger and restart safety
 
-fluss-sync maintains an embedded, on-disk ledger (a lightweight local key
+fluss-ice-sync maintains an embedded, on-disk ledger (a lightweight local key
 store, e.g. SQLite or MapDB — file: `state/ledger.db`) keyed by
 `(sourceName, filePath, contentHash)` → `{status, processedAt}`.
 
-* Before processing a file, fluss-sync checks the ledger. If an entry exists
+* Before processing a file, fluss-ice-sync checks the ledger. If an entry exists
   with status `PROCESSED` for the same content hash, the file is skipped
   (handles the case where a restart re-delivers a `WatchService` event for a
   file that was already fully handled but not yet archived/deleted).
@@ -508,7 +508,7 @@ makes the archive/delete step idempotent across restarts (see below).
 
 ### Health checks
 
-fluss-sync exposes an HTTP health endpoint (`config/apps/sync/application.yaml`'s
+fluss-ice-sync exposes an HTTP health endpoint (`config/apps/sync/application.yaml`'s
 `health.port`/`health.path`, default `:8080/healthz`) so both Docker Compose
 and a future Kubernetes deployment have something to probe instead of only
 inferring liveness from the process being alive. It is intended to report
@@ -523,11 +523,11 @@ currently report healthy while a source is stuck; see
 
 ## Deployment
 
-v0 targets **Docker Compose** as the deployment mechanism, running fluss-sync
+v0 targets **Docker Compose** as the deployment mechanism, running fluss-ice-sync
 alongside a Fluss cluster (ZooKeeper + CoordinatorServer + TabletServer, per
 [Fluss's Docker deployment guide](https://fluss.apache.org/docs/install-deploy/deploying-with-docker/))
 on a single host. This is deliberately the simplest thing that lets
-fluss-sync and Fluss be brought up together with one command, matching the
+fluss-ice-sync and Fluss be brought up together with one command, matching the
 single-instance scope in [Goals](#goals). A future Kubernetes deployment
 (Helm chart or plain manifests) is expected but out of scope for v0 — see
 below.
@@ -544,7 +544,7 @@ flowchart TB
         end
 
         subgraph APP["docker-compose.app.yml"]
-            FS["fluss-sync"]
+            FS["fluss-ice-sync"]
         end
 
         subgraph MON["docker-compose.monitoring.yml<br/>(placeholder in v0)"]
@@ -571,7 +571,7 @@ default network and can `depends_on`/resolve each other by service name):
 
 * `docker-compose.infra.yml` — the Fluss cluster itself (ZooKeeper,
   CoordinatorServer, TabletServer).
-* `docker-compose.app.yml` — the `fluss-sync` service.
+* `docker-compose.app.yml` — the `fluss-ice-sync` service.
 * `docker-compose.monitoring.yml` — reserved for a metrics/logging stack
   (e.g. Prometheus + Grafana) once [Observability](#observability)'s "v0
   does not mandate a specific metrics backend" is resolved; in v0 this file
@@ -625,7 +625,7 @@ verbatim in ZooKeeper for peer/client discovery.
 ```yaml
 # docker-compose.app.yml
 services:
-  fluss-sync:
+  fluss-ice-sync:
     build:
       context: ../..
       dockerfile: app/sync/Dockerfile
@@ -637,7 +637,7 @@ services:
       - ../resources:/config/resources:ro
       - ../apps/sync/application.yaml:/config/application.yaml:ro
       - ../../watch:/watch
-      - fluss-sync-state:/state
+      - fluss-ice-sync-state:/state
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/healthz"]
       interval: 30s
@@ -645,12 +645,12 @@ services:
       retries: 3
 
 volumes:
-  fluss-sync-state:
+  fluss-ice-sync-state:
 ```
 
 Notes:
 
-* `docker-compose.app.yml`'s `fluss-sync.depends_on: [tablet-server]` only
+* `docker-compose.app.yml`'s `fluss-ice-sync.depends_on: [tablet-server]` only
   resolves when both files are passed to the same `docker compose`
   invocation (as the Makefile does — see below); it is not runnable via
   `docker-compose.app.yml` alone.
@@ -663,13 +663,13 @@ Notes:
   respectively — the container-side path stays a fixed, flat
   `/config/application.yaml` regardless of where the file lives on the
   host, so the app doesn't need to know about the `apps/sync/` nesting.
-  Config changes require restarting the `fluss-sync` container (consistent
+  Config changes require restarting the `fluss-ice-sync` container (consistent
   with the no-hot-reload behavior described under
   [Configuration](#configuration)).
 * The `healthcheck` stanza uses the endpoint from
   [Health checks](#health-checks) so `docker compose ps` and `depends_on`
   conditions can reflect real readiness, not just "the process started."
-* The `fluss-sync` image is built from `app/sync/Dockerfile` — kept next to
+* The `fluss-ice-sync` image is built from `app/sync/Dockerfile` — kept next to
   the module it builds rather than under `config/docker/`, which holds only
   compose files and env examples — with the build context set to the repo
   root so it can access the Gradle build.
@@ -687,11 +687,11 @@ compose file split, or the `-f` flag ordering:
 |---|---|
 | `make build` | `./gradlew :app:sync:build` |
 | `make test` | `./gradlew :app:sync:test` |
-| `make run` | `./gradlew :app:sync:run` — run fluss-sync locally against an already-running Fluss cluster |
+| `make run` | `./gradlew :app:sync:run` — run fluss-ice-sync locally against an already-running Fluss cluster |
 | `make infra-up` | `docker compose -f config/docker/docker-compose.infra.yml up -d` — bring up just ZooKeeper + Fluss, e.g. to pair with `make run` |
-| `make up` | `docker compose -f config/docker/docker-compose.infra.yml -f config/docker/docker-compose.app.yml -f config/docker/docker-compose.monitoring.yml up -d --build` — bring up the full stack, always rebuilding the `fluss-sync` image from local source first |
+| `make up` | `docker compose -f config/docker/docker-compose.infra.yml -f config/docker/docker-compose.app.yml -f config/docker/docker-compose.monitoring.yml up -d --build` — bring up the full stack, always rebuilding the `fluss-ice-sync` image from local source first |
 | `make down` | same `-f` list as `make up`, with `down` |
-| `make logs` | same `-f` list as `make up`, with `logs -f fluss-sync` |
+| `make logs` | same `-f` list as `make up`, with `logs -f fluss-ice-sync` |
 | `make clean` | `./gradlew clean` |
 
 Every compose-backed target passes the same fixed `-f` list (all three
@@ -720,7 +720,7 @@ filesystem watch.** Rejected for v0 because it would require provisioning
 and managing per-provider credentials/OAuth and either a publicly reachable
 webhook endpoint or a polling loop against that provider's API rate limits —
 more operational surface than needed when a container can simply mount a
-local, already-synced folder, and it would tie fluss-sync's core watch logic
+local, already-synced folder, and it would tie fluss-ice-sync's core watch logic
 to one specific provider's API instead of the filesystem. Revisit if a
 source's files only exist in a cloud store with no local sync mechanism
 available.
@@ -745,7 +745,7 @@ drift/typos between the two.
   with variable column counts, or is a fixed schema sufficient for all
   known sources?
 * What is the retention/cleanup policy for the `_processed` archive
-  subfolders and the `_rejected` folder — is that managed by fluss-sync or
+  subfolders and the `_rejected` folder — is that managed by fluss-ice-sync or
   left to whatever external process/retention policy governs the watched
   volume?
 * Do any sources need `PRIMARY_KEY` tables in practice, or is `LOG` the only
@@ -782,7 +782,7 @@ document:
   table). Needs a bounded-retry-plus-alerting (or dead-letter folder)
   design; earlier drafts of this doc described this as "retried with
   backoff," which doesn't match v0's actual behavior.
-* **Fluss cluster authentication.** How fluss-sync itself authenticates to
+* **Fluss cluster authentication.** How fluss-ice-sync itself authenticates to
   the Fluss cluster (credentials, TLS) is unaddressed; `spec.security.roles`
   currently only names roles without specifying how they're presented or
   enforced.
