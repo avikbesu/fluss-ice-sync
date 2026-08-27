@@ -10,7 +10,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class SyncSourceConfigLoaderTest {
 
-    private static final Path REPO_RESOURCES = Path.of("../../config/resources");
+    private static final Path REPO_RESOURCES = Path.of("../../config/resources/spec");
 
     private final SyncSourceConfigLoader loader = new SyncSourceConfigLoader();
 

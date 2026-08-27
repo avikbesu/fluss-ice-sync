@@ -4,11 +4,18 @@ services:
       context: ../..
       dockerfile: app/sync/Dockerfile
     depends_on:
-      - tablet-server
+      tablet-server:
+        condition: service_healthy
     environment:
       FLUSS_BOOTSTRAP_SERVERS: "tablet-server:9123"
     volumes:
-      - ../resources:/config/resources:ro
+      # config/resources/*.yaml were the SyncSource specs directly; they now
+      # live under config/resources/spec/ (config/resources/ also holds
+      # config/resources/branding/, unrelated to fluss-ice-sync -- see the
+      # fluss-ice-sync-ui service below). FlussSyncConfigLoader scans its
+      # target directory non-recursively, so the container's /config/resources
+      # must land on spec/ directly, not the config/resources/ parent.
+      - ../resources/spec:/config/resources:ro
       - ../apps/sync/application.yaml:/config/application.yaml:ro
       - ../../watch:/watch
       - fluss-ice-sync-state:/state
@@ -17,6 +24,31 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
+
+  fluss-ice-sync-ui:
+    build:
+      # Self-contained context (app/ui/), not the repo root -- see
+      # app/ui/Dockerfile, which now lives next to what it builds.
+      context: ../../app/ui
+    depends_on:
+      trino-coordinator:
+        condition: service_healthy
+    ports:
+      - "8092:8080"
+    environment:
+      TRINO_COORDINATOR_URL: "http://trino-coordinator:8080"
+      CHAT_ENABLED: ${CHAT_ENABLED:-false}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      # Overrides application.yaml's branding.appName/logoUrl without a
+      # rebuild -- unset by default, so the YAML file's own values apply.
+      APP_NAME: ${APP_NAME:-}
+      LOGO_URL: ${LOGO_URL:-}
+    volumes:
+      - ../apps/ui/application.yaml:/config/application.yaml:ro
+      # Swap config/resources/branding/logo.svg (or point LOGO_URL/
+      # application.yaml's branding.logoUrl elsewhere) to change the logo
+      # with no rebuild.
+      - ../resources/branding:/branding:ro
 
 volumes:
   fluss-ice-sync-state:

@@ -10,6 +10,7 @@ import org.apache.fluss.client.table.Table;
 import org.apache.fluss.client.table.writer.AppendWriter;
 import org.apache.fluss.client.table.writer.UpsertWriter;
 import org.apache.fluss.config.ConfigOptions;
+import org.apache.fluss.exception.LakeTableAlreadyExistException;
 import org.apache.fluss.metadata.DatabaseDescriptor;
 import org.apache.fluss.metadata.Schema;
 import org.apache.fluss.metadata.TableDescriptor;
@@ -58,7 +59,22 @@ public final class FlussClientSink implements FlussSink {
             }
             TablePath path = TablePath.of(destination.database, destination.table);
             if (!admin.tableExists(path).get()) {
-                admin.createTable(path, buildDescriptor(destination, format, appConfig), true).get();
+                try {
+                    admin.createTable(path, buildDescriptor(destination, format, appConfig), true).get();
+                } catch (ExecutionException e) {
+                    // Fluss's own metadata (zookeeper) and the Iceberg lake
+                    // table it tiers into can drift apart -- e.g. zookeeper
+                    // lost its record of the table across a restart while
+                    // the already-tiered Iceberg table survived. Fluss
+                    // still refuses to recreate it in that case even with
+                    // ignoreIfExists=true, but the table is otherwise
+                    // usable, so treat this the same as tableExists()
+                    // having returned true instead of wedging this file
+                    // forever.
+                    if (!(e.getCause() instanceof LakeTableAlreadyExistException)) {
+                        throw e;
+                    }
+                }
             }
             Table table = connection.getTable(path);
             if (destination.tableType == SyncSourceConfig.TableType.PRIMARY_KEY) {

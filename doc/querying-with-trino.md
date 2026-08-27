@@ -38,7 +38,7 @@ state.
 ## 3. Which tables are actually queryable
 
 Only `SyncSource`s with `spec.destination.lakehouse.enabled: true` get
-tiered — see `config/resources/*.yaml`. As of this writing that's:
+tiered — see `config/resources/spec/*.yaml`. As of this writing that's:
 
 | Fluss table | Trino table |
 |---|---|
@@ -75,11 +75,9 @@ SELECT count(*) FROM iceberg.sales.partner_orders_raw;
 
 ### One-off query without a shell
 
-`docker compose exec` needs every compose file that defines the service's
-dependencies, not just `docker-compose.trino.yml` on its own (it depends on
-`iceberg-catalog-db`, defined in `docker-compose.infra.yml`) — so either use
-the full `$(COMPOSE)` file list from the Makefile, or just `docker exec` the
-running container directly:
+Either use the full `$(COMPOSE)` file list from the Makefile (`trino-coordinator`
+is defined in `docker-compose.infra.yml`, alongside the `iceberg-catalog-db`
+it depends on), or just `docker exec` the running container directly:
 
 ```
 docker exec $(docker ps -qf name=trino-coordinator) \
@@ -126,8 +124,7 @@ crm-read-role ...` form instead (or editing the Makefile target).
 | Query times out or `iceberg` catalog missing entirely | `trino-coordinator` isn't healthy yet, or started before `iceberg-catalog-db` was ready — check `docker compose ps` |
 | Table exists but has 0 rows | Tiering job isn't running (`make lakehouse-submit` again) — check with `flink list` as in step 2 |
 | Row count froze after an initial commit and never advances, even though the tiering job still shows `RUNNING` | Check `docker logs <flink-jobmanager container> --since 5m \| grep FileNotFoundException` — if present, `/tmp/fluss/remote-data` isn't shared between `coordinator-server` and `tablet-server` (should be fixed by the `fluss-remote-data` volume in `docker-compose.infra.yml`; if you've hand-rolled a variant compose file without it, this is why) |
-| Table never appears at all | That source's `lakehouse.enabled` isn't `true` in its `config/resources/*.yaml` |
-| `fluss-ice-sync` container exited on `make up` | Known startup race with `tablet-server` — rerun: `docker compose -f config/docker/docker-compose.infra.yml -f config/docker/docker-compose.app.yml up -d fluss-ice-sync` |
+| Table never appears at all | That source's `lakehouse.enabled` isn't `true` in its `config/resources/spec/*.yaml` |
 
 To confirm data actually reached Fluss in the first place (before blaming
 Trino), watch `watch/partner-orders/_processed/` for the file to show up

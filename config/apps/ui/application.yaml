@@ -1,0 +1,55 @@
+# Config for fluss-ice-sync-ui's BFF. Mounted read-only into the container
+# at /config/application.yaml, matching config/apps/sync/application.yaml's
+# pattern of one YAML file per app rather than baking config into the image.
+#
+# Secrets (an LLM API key) are never read from this file — only the name of
+# the environment variable that holds one, so the file itself stays safe to
+# commit. See doc/design/v2-web-ui-design.md.
+
+server:
+  port: 8080
+
+# Shown top-left in the header. logoUrl is served by the BFF from whatever
+# is mounted at /branding (see docker-compose.app.yml's fluss-ice-sync-ui
+# volumes) -- swap the logo by replacing config/resources/branding/logo.svg
+# (or pointing logoUrl at a different mounted file/external URL entirely),
+# no rebuild required. Leave logoUrl blank to fall back to text-only (appName).
+branding:
+  appName: fluss-ice-sync
+  logoUrl: /branding/logo.svg
+
+trino:
+  # Hostname:port of the Trino coordinator, reachable from this container
+  # (docker-compose.app.yml sets this to the trino-coordinator service).
+  coordinatorUrl: http://trino-coordinator:8080
+  catalog: iceberg
+  # Schemas offered in the UI's dropdown. There is deliberately no "list
+  # every schema Trino knows about" call -- v1's access control grants
+  # SELECT per-schema to a matching "<schema>-read-role" with no broader
+  # role that could enumerate every schema in one shot, so this list is
+  # configured explicitly: one entry per SyncSource database that has
+  # spec.destination.lakehouse.enabled: true (see v1 design doc's rollout).
+  schemas:
+    - sales
+  # Trino user connected as for a query against schema "<schema>" is
+  # "<schema>${readRoleSuffix}" -- e.g. "sales-read-role" -- matching the
+  # per-schema read-role convention config/trino/etc/access-control/rules.json
+  # already grants SELECT to (see v1 design doc).
+  readRoleSuffix: "-read-role"
+
+query:
+  rowLimit: 1000
+  timeoutMs: 30000
+
+# History entries themselves are kept client-side (browser localStorage),
+# not here -- see doc/design/v2-web-ui-design.md's "Query history" section.
+# `limit` is served to the SPA via /api/config so the UI's cap and its
+# "Recent N queries" label always agree with this value.
+history:
+  limit: 10
+
+chat:
+  enabled: false
+  provider: anthropic
+  model: claude-sonnet-5
+  apiKeyEnv: ANTHROPIC_API_KEY

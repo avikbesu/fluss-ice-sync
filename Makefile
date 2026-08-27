@@ -17,14 +17,20 @@ export ICEBERG_CATALOG_NAME ICEBERG_CATALOG_DB ICEBERG_CATALOG_USER ICEBERG_CATA
 # lakehouse-submit points at is only present in the image if the two agree.
 FLUSS_VERSION = 0.9.1-incubating
 
+# docker-compose.lakehouse.yml and docker-compose.trino.yml were folded
+# into docker-compose.infra.yml (Flink tiering + Trino have no
+# independent-startup use case distinct from the rest of infra -- see that
+# file). Note this does widen `infra-up` below: it now also brings up
+# Flink and Trino, not just Fluss/ZooKeeper/the Iceberg catalog DB as
+# before the merge.
 COMPOSE = docker compose \
 	-f config/docker/docker-compose.infra.yml \
 	-f config/docker/docker-compose.app.yml \
-	-f config/docker/docker-compose.monitoring.yml \
-	-f config/docker/docker-compose.lakehouse.yml \
-	-f config/docker/docker-compose.trino.yml
+	-f config/docker/docker-compose.monitoring.yml
 
-.PHONY: build test run infra-up up down logs clean lakehouse-up lakehouse-submit trino-shell
+.PHONY: build test run infra-up up down logs clean reset lakehouse-up lakehouse-submit trino-shell ui-logs
+
+default: up
 
 build:
 	./gradlew :app:sync:build
@@ -38,7 +44,7 @@ run:
 infra-up:
 	docker compose -f config/docker/docker-compose.infra.yml up -d
 
-up:
+up: reset
 	$(COMPOSE) up -d --build
 
 down:
@@ -47,14 +53,15 @@ down:
 logs:
 	$(COMPOSE) logs -f fluss-ice-sync
 
-clean:
+clean: ## Clean gradle build for all modules
 	./gradlew clean
 
+reset: clean ## Full teardown: containers, volumes, locally-built images, and Gradle build output (all profiles, including Trino)
+	$(COMPOSE) down --rmi local --volumes --remove-orphans
+
 lakehouse-up:
-	docker compose \
-		-f config/docker/docker-compose.infra.yml \
-		-f config/docker/docker-compose.lakehouse.yml \
-		up -d --build
+	docker compose -f config/docker/docker-compose.infra.yml \
+		up -d --build flink-jobmanager flink-taskmanager
 
 lakehouse-submit:
 	$(COMPOSE) exec flink-jobmanager /opt/flink/bin/flink run \
@@ -69,3 +76,6 @@ lakehouse-submit:
 
 trino-shell:
 	$(COMPOSE) exec trino-coordinator trino --user sales-read-role
+
+ui-logs:
+	$(COMPOSE) logs -f fluss-ice-sync-ui

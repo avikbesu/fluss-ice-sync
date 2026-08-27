@@ -2,7 +2,7 @@ package com.flusssync.config;
 
 import java.util.List;
 
-/** Parsed form of a {@code config/resources/*.yaml} SyncSource file. */
+/** Parsed form of a {@code config/resources/spec/*.yaml} SyncSource file. */
 public class SyncSourceConfig {
 
     public String apiVersion;

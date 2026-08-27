@@ -1,0 +1,584 @@
+/*
+ * Explicit light/dark tokens, not just `color-scheme: light dark`.
+ * That alone (with no author-set background) let the browser fill the page
+ * canvas per the *system* preference with no way to override it from the
+ * UI -- which is what made this look "dark-mode only" (a system in dark
+ * mode got a dark canvas no matter what). The theme toggle in App.tsx
+ * sets data-theme on <html>, and both blocks below stay in sync with it.
+ *
+ * Palette is amber/yellow in both themes, per request -- --accent is the
+ * button fill, --accent-text is the same hue used *as text* on the page
+ * background (tab labels, history schema tag), tuned separately from
+ * --accent because a hue readable as a small button fill isn't always
+ * readable as small text on the page background. --accent-2 is a second,
+ * cooler amber used only in the header's flow-gradient signature.
+ */
+:root {
+  color-scheme: light;
+  --bg: #fffdf5;
+  --bg-subtle: #fbf1d3;
+  --bg-raised: #fffaeb;
+  --fg: #2b2410;
+  --border: #e3d5a0;
+  --accent: #b45309;
+  --accent-2: #ea9c1f;
+  --accent-fg: #fffaf0;
+  --accent-text: #92400e;
+  --error: #b3261e;
+  --truncated-bg: #fdf1cf;
+  --fg-muted: #8a7a45;
+  --shadow: 0 1px 2px rgba(43, 36, 16, 0.06), 0 2px 8px rgba(43, 36, 16, 0.05);
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+
+  --font-xs: 11px;
+  --font-sm: 12.5px;
+  --font-base: 13.5px;
+  --font-md: 15px;
+  --font-lg: 18px;
+
+  --radius: 8px;
+  --radius-sm: 5px;
+
+  --font-sans: -apple-system, "Inter", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "Cascadia Code", "JetBrains Mono", Menlo, monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #201a0a;
+    --bg-subtle: #2e2610;
+    --bg-raised: #2a2210;
+    --fg: #f5ecd2;
+    --border: #4a3d17;
+    --accent: #f59e0b;
+    --accent-2: #fbbf24;
+    --accent-fg: #201a0a;
+    --accent-text: #fbbf24;
+    --error: #ff6b5e;
+    --truncated-bg: #4a3d17;
+    --fg-muted: #b8a668;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 2px 10px rgba(0, 0, 0, 0.25);
+  }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #201a0a;
+  --bg-subtle: #2e2610;
+  --bg-raised: #2a2210;
+  --fg: #f5ecd2;
+  --border: #4a3d17;
+  --accent: #f59e0b;
+  --accent-2: #fbbf24;
+  --accent-fg: #201a0a;
+  --accent-text: #fbbf24;
+  --error: #ff6b5e;
+  --truncated-bg: #4a3d17;
+  --fg-muted: #b8a668;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 2px 10px rgba(0, 0, 0, 0.25);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: var(--font-base);
+  background: var(--bg);
+  color: var(--fg);
+  -webkit-font-smoothing: antialiased;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent-2);
+  outline-offset: 2px;
+}
+
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-5);
+  padding: var(--space-2) var(--space-4);
+  border-bottom: 1px solid var(--border);
+  position: relative;
+}
+
+/* Signature touch: a thin amber "flow" running under the header, tying the
+   fluss-ice-sync name (a data *stream*) to the amber theme rather than
+   using the accent purely as a UI-chrome color. */
+header::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 2px;
+  background: linear-gradient(90deg, var(--accent) 0%, var(--accent-2) 45%, transparent 75%);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.logo {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  object-fit: contain;
+}
+
+header h1 {
+  font-size: var(--font-md);
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+
+.tabs {
+  display: flex;
+  gap: var(--space-1);
+}
+
+.tabs button {
+  background: none;
+  color: var(--fg-muted);
+  border: none;
+  padding: var(--space-2) var(--space-3);
+  cursor: pointer;
+  font-size: var(--font-base);
+  font-weight: 500;
+  border-bottom: 2px solid transparent;
+  transition: color 0.12s ease;
+}
+
+.tabs button:hover {
+  color: var(--fg);
+}
+
+.tabs button.active {
+  border-bottom-color: var(--accent);
+  color: var(--accent-text);
+  font-weight: 650;
+}
+
+.tab-content {
+  flex: 1;
+  overflow: hidden;
+}
+
+.query-tab {
+  display: flex;
+  height: 100%;
+}
+
+.sidebar {
+  width: 270px;
+  border-right: 1px solid var(--border);
+  padding: var(--space-4);
+  overflow-y: auto;
+  background: var(--bg-raised);
+}
+
+.field-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.field-row label,
+.chat-controls label {
+  font-size: var(--font-sm);
+  font-weight: 600;
+  color: var(--fg-muted);
+  white-space: nowrap;
+}
+
+.field-row select {
+  flex: 1;
+}
+
+.sidebar h3 {
+  font-size: var(--font-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 700;
+  color: var(--fg-muted);
+  margin: var(--space-5) 0 var(--space-2);
+}
+
+.table-list,
+.history-list {
+  list-style: none;
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.table-list button,
+.history-list button {
+  width: 100%;
+  text-align: left;
+  background: none;
+  color: var(--fg);
+  border: none;
+  border-left: 2px solid transparent;
+  padding: var(--space-2) var(--space-2);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-base);
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+.table-list button:hover,
+.history-list button:hover {
+  background: var(--bg-subtle);
+  border-left-color: var(--accent);
+}
+
+.history-list button {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.history-schema {
+  font-size: var(--font-xs);
+  color: var(--accent-text);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.history-sql {
+  font-family: var(--font-mono);
+  font-size: var(--font-sm);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.history-time {
+  font-size: var(--font-xs);
+  color: var(--fg-muted);
+}
+
+.query-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-4);
+  overflow: hidden;
+  gap: var(--space-3);
+}
+
+.sql-editor {
+  width: 100%;
+  min-height: 140px;
+  font-family: var(--font-mono);
+  font-size: var(--font-base);
+  line-height: 1.5;
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  resize: vertical;
+  background: var(--bg-raised);
+  color: var(--fg);
+  box-shadow: inset 0 1px 2px rgba(43, 36, 16, 0.04);
+}
+
+.sql-editor:focus-visible {
+  border-color: var(--accent);
+}
+
+select {
+  background: var(--bg-raised);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-2);
+  font-size: var(--font-base);
+}
+
+.theme-toggle {
+  margin-left: auto;
+  background: none;
+  color: var(--fg-muted);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--font-sm);
+  box-shadow: none;
+}
+
+.theme-toggle:hover {
+  background: var(--bg-subtle);
+  color: var(--fg);
+}
+
+.query-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+/*
+ * Filled action buttons (Run query, Ask) are scoped to `.btn`, not the bare
+ * `button` element. A bare-element rule previously fought the ghost-style
+ * buttons above (.tabs, .table-list/.history-list, .theme-toggle) on
+ * :hover -- `button:hover:not(:disabled)` and e.g. `.tabs button:hover`
+ * carry equal specificity, and being later in the file let the filled
+ * amber hover background win there too, painting an amber block behind
+ * text that was only ever styled to sit on a transparent background
+ * (unreadable in both themes -- confirmed directly). Scoping to a class
+ * removes the specificity fight entirely instead of trying to out-rank it.
+ */
+.btn {
+  background: var(--accent);
+  color: var(--accent-fg);
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-4);
+  cursor: pointer;
+  font-size: var(--font-base);
+  font-weight: 600;
+  box-shadow: var(--shadow);
+  transition: transform 0.08s ease, box-shadow 0.12s ease, background 0.12s ease;
+}
+
+.btn:hover:not(:disabled) {
+  background: var(--accent-2);
+}
+
+.btn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.results {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.results-meta {
+  font-size: var(--font-sm);
+  color: var(--fg-muted);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.truncated-badge {
+  background: var(--truncated-bg);
+  color: var(--accent-text);
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: var(--font-xs);
+  font-weight: 600;
+}
+
+.results-grid-scroll {
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: var(--font-base);
+  font-family: var(--font-mono);
+}
+
+th,
+td {
+  text-align: left;
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+th {
+  background: var(--bg-subtle);
+  position: sticky;
+  top: 0;
+  font-family: var(--font-sans);
+  font-size: var(--font-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--fg-muted);
+  box-shadow: 0 1px 0 var(--border);
+}
+
+tbody tr:nth-child(even) {
+  background: var(--bg-subtle);
+}
+
+tbody tr:hover {
+  background: var(--truncated-bg);
+}
+
+.col-type {
+  display: block;
+  font-weight: 400;
+  font-size: 9px;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--fg-muted);
+  margin-top: 2px;
+}
+
+.error {
+  color: var(--error);
+  font-size: var(--font-base);
+}
+
+.hint {
+  color: var(--fg-muted);
+  font-size: var(--font-base);
+}
+
+/* Skeleton placeholder shown in the results area while a query is running
+   -- replaces a bare "Running..." label with something that reads as
+   progress rather than the page having stalled. */
+.results-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: var(--space-3);
+}
+
+.results-skeleton .skeleton-row {
+  height: 14px;
+  border-radius: var(--radius-sm);
+  background: linear-gradient(
+    90deg,
+    var(--bg-subtle) 25%,
+    var(--truncated-bg) 50%,
+    var(--bg-subtle) 75%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.3s ease-in-out infinite;
+}
+
+.results-skeleton .skeleton-row:nth-child(1) {
+  width: 60%;
+}
+.results-skeleton .skeleton-row:nth-child(2) {
+  width: 90%;
+}
+.results-skeleton .skeleton-row:nth-child(3) {
+  width: 75%;
+}
+.results-skeleton .skeleton-row:nth-child(4) {
+  width: 85%;
+}
+
+@keyframes skeleton-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .results-skeleton .skeleton-row {
+    animation: none;
+  }
+  button {
+    transition: none;
+  }
+}
+
+.chat-tab {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: var(--space-4);
+  gap: var(--space-3);
+}
+
+.chat-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.chat-transcript {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+.chat-turn {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.chat-question {
+  font-weight: 650;
+  margin: 0;
+}
+
+.chat-sql {
+  background: var(--bg-subtle);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius);
+  font-family: var(--font-mono);
+  font-size: var(--font-sm);
+  overflow-x: auto;
+  border-left: 2px solid var(--accent);
+}
+
+.chat-input {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.chat-input input {
+  flex: 1;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-base);
+  background: var(--bg-raised);
+  color: var(--fg);
+}
+
+.chat-input input:focus-visible {
+  border-color: var(--accent);
+}

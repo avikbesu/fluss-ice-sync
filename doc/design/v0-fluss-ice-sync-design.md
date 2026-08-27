@@ -86,7 +86,7 @@ flowchart TB
             direction LR
             VA["Validator"] --> LP["LineParser"] --> FW["FlussWriter"] --> PP["PostProcessor"]
         end
-        CFG[("SourceConfig<br/>config/resources/*.yaml")]
+        CFG[("SourceConfig<br/>config/resources/spec/*.yaml")]
         LEDGER[("ProcessedFileLedger<br/>embedded state store")]
 
         DW --> SR --> FP
@@ -172,7 +172,7 @@ fluss-ice-sync/
   the `sync` app — settings that apply across all sources rather than to
   one (parsing defaults, retention, health checks; see
   [Application configuration](#application-configuration)) — as opposed to
-  `config/resources/*.yaml`, which is one file per watched source. It's
+  `config/resources/spec/*.yaml`, which is one file per watched source. It's
   nested under `apps/sync/` (mirroring `app/sync`) rather than sitting
   directly under `config/`, so that if a second app is ever added under
   `app/`, its global config has an equally-scoped home at
@@ -195,7 +195,7 @@ fluss-ice-sync/
 ### Configuration
 
 Each watched source is described by one YAML file under
-`config/resources/*.yaml`, using an `apiVersion`/`kind`/`metadata`/`spec`
+`config/resources/spec/*.yaml`, using an `apiVersion`/`kind`/`metadata`/`spec`
 envelope (in the same spirit as other flow/task config conventions used
 elsewhere, e.g. [trino-with-ice's `flow.yaml`](https://github.com/skhatri/trino-with-ice/blob/main/examples/tasks/bicycles/flow.yaml)):
 one top-level resource of `kind: SyncSource` per watched directory. Example:
@@ -634,7 +634,7 @@ services:
     environment:
       FLUSS_BOOTSTRAP_SERVERS: "tablet-server:9123"
     volumes:
-      - ../resources:/config/resources:ro
+      - ../resources/spec:/config/resources:ro
       - ../apps/sync/application.yaml:/config/application.yaml:ro
       - ../../watch:/watch
       - fluss-ice-sync-state:/state
@@ -659,10 +659,13 @@ Notes:
   `/watch` mount — the compose file is responsible for bind-mounting the
   actual host folder(s) that files get placed into underneath it.
 * `/config/resources` and `/config/application.yaml` are mounted read-only
-  from the repo's `config/resources/` and `config/apps/sync/application.yaml`
-  respectively — the container-side path stays a fixed, flat
-  `/config/application.yaml` regardless of where the file lives on the
-  host, so the app doesn't need to know about the `apps/sync/` nesting.
+  from the repo's `config/resources/spec/` (as of a later restructuring —
+  `config/resources/` also holds `branding/` for the web UI, see
+  [v2](./v2-web-ui-design.md), unrelated to this app) and
+  `config/apps/sync/application.yaml` respectively — the container-side
+  path stays a fixed, flat `/config/application.yaml` regardless of where
+  the file lives on the host, so the app doesn't need to know about the
+  `apps/sync/` nesting.
   Config changes require restarting the `fluss-ice-sync` container (consistent
   with the no-hot-reload behavior described under
   [Configuration](#configuration)).
@@ -703,7 +706,7 @@ contributor building day-to-day needs to reason about.
 **Future: Kubernetes.** The same three concerns — watched-folder storage,
 config, and ledger state — map onto Kubernetes primitives (a
 `PersistentVolume`/`PersistentVolumeClaim` for the watch path and ledger, a
-`ConfigMap` for `config/resources/*.yaml` and
+`ConfigMap` for `config/resources/spec/*.yaml` and
 `config/apps/sync/application.yaml`)
 behind a single-replica `Deployment` or `StatefulSet`, with the
 [health endpoint](#health-checks) wired to `livenessProbe`/`readinessProbe`. Moving to Kubernetes does not by itself remove the

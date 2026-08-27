@@ -11,7 +11,7 @@
 ## Objective
 
 Make every Fluss table backing a configured `SyncSource` (e.g. `crm.customer_accounts`,
-`sales.partner_orders_raw`, and any table added by a future `config/resources/*.yaml`
+`sales.partner_orders_raw`, and any table added by a future `config/resources/spec/*.yaml`
 file) queryable with standard SQL via [Trino](https://trino.io), without any
 per-table onboarding step on the Trino side — a table becomes queryable simply
 because it exists as a `SyncSource` destination.
@@ -151,6 +151,19 @@ At a high level:
 
 ## Repository Layout
 
+> **Superseded by a later restructuring** (undocumented in its own design
+> doc — a direct repo cleanup, not a new feature): `docker-compose.lakehouse.yml`
+> and `docker-compose.trino.yml` were folded into `docker-compose.infra.yml`
+> (they had no independent-startup use case distinct from the rest of
+> infra), `config/docker/trino/Dockerfile` was deleted (`trino-coordinator`
+> now uses `image: trinodb/trino:470` directly — it was `FROM trinodb/trino:470`
+> verbatim and added nothing), and `config/resources/*.yaml` moved to
+> `config/resources/spec/*.yaml` (`config/resources/` also gained a
+> `branding/` subdirectory for the web UI's logo — see
+> [v2](./v2-web-ui-design.md)). The tree and bullets below are as of v1;
+> see [v2's Repository Layout](./v2-web-ui-design.md#repository-layout) and
+> the root `Makefile`/`config/docker/` for the current structure.
+
 ```
 fluss-ice-sync/
 ├── app/
@@ -187,12 +200,13 @@ fluss-ice-sync/
 ```
 
 * `config/docker/docker-compose.lakehouse.yml` and
-  `docker-compose.trino.yml` are separate compose files (not folded into
-  `docker-compose.app.yml`), following v0's convention of one file per
-  concern combined with `-f` flags — this lets `make infra-up` /
+  `docker-compose.trino.yml` were, at the time, separate compose files (not
+  folded into `docker-compose.app.yml`), following v0's convention of one
+  file per concern combined with `-f` flags — this lets `make infra-up` /
   `make run` continue to work without Trino/Flink for a plain fluss-ice-sync
   dev loop, and lets Trino be brought up (or torn down) independently of the
-  tiering job while debugging either in isolation.
+  tiering job while debugging either in isolation. (Later folded into
+  `docker-compose.infra.yml` — see the note atop this section.)
 * `config/trino/` is a new sibling of `config/resources/` and
   `config/apps/`, not nested under `app/sync/` — neither Flink's tiering
   job nor Trino is part of the `fluss-ice-sync` Java application; they are
@@ -624,6 +638,11 @@ union-read capability), not through this Trino path. See
   not committed to for v1.
 
 ## Deployment
+
+> As of v1, `docker-compose.lakehouse.yml` and `docker-compose.trino.yml`
+> were their own files, per the diagram immediately below. Both were later
+> folded into `docker-compose.infra.yml` — see the note atop
+> [Repository Layout](#repository-layout).
 
 ```mermaid
 flowchart TB

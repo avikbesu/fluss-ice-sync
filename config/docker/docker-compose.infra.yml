@@ -1,6 +1,15 @@
 services:
+  # Holds Fluss's own table/database registry. Without a volume this is
+  # wiped on every recreate while the Iceberg-backed lakehouse-warehouse
+  # and iceberg-catalog-db volumes below survive, so Fluss "forgets" a
+  # table exists but Iceberg still has it -- createTable then fails with
+  # LakeTableAlreadyExistException forever for that table (hit directly:
+  # a previously-tiered table got permanently stuck after a rebuild).
   zookeeper:
     image: zookeeper:3.9.2
+    volumes:
+      - zookeeper-data:/data
+      - zookeeper-datalog:/datalog
 
   # ${ICEBERG_CATALOG_*} values are exported by the root Makefile — the
   # single source of truth. The `:-` fallbacks here only guard against
@@ -17,9 +26,21 @@ services:
     volumes:
       - iceberg-catalog-db-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${ICEBERG_CATALOG_USER:-iceberg} -d ${ICEBERG_CATALOG_DB:-iceberg_catalog}"]
+      # The official postgres image starts a *temporary* server to run
+      # init scripts on a brand-new volume, stops it, then starts the
+      # real one on the same port — so a single pg_isready can succeed
+      # against the temporary server, Compose marks the container
+      # "healthy", and coordinator-server (below) then hits Connection
+      # refused during the gap before the real server comes up (hit
+      # directly, right after `make up` following a full `reset`, i.e.
+      # against fresh volumes — the one case this double-start actually
+      # happens). Requiring two pg_isready checks 2s apart in the same
+      # probe means a temporary-server false positive gets caught: the
+      # temp server is long gone 2s later, so the second check fails and
+      # the probe as a whole reports not-yet-healthy.
+      test: ["CMD-SHELL", "pg_isready -U ${ICEBERG_CATALOG_USER:-iceberg} -d ${ICEBERG_CATALOG_DB:-iceberg_catalog} && sleep 2 && pg_isready -U ${ICEBERG_CATALOG_USER:-iceberg} -d ${ICEBERG_CATALOG_DB:-iceberg_catalog}"]
       interval: 5s
-      timeout: 5s
+      timeout: 10s
       retries: 10
 
   # coordinator-server, tablet-server, flink-jobmanager/taskmanager, and
@@ -80,13 +101,32 @@ services:
       # for a file that unquestionably existed — just on the wrong
       # container's disk).
       - fluss-remote-data:/tmp/fluss/remote-data
+    healthcheck:
+      # No HTTP health endpoint on Fluss's own servers (unlike
+      # fluss-ice-sync's /healthz) -- this just confirms the FLUSS
+      # listener port is accepting connections, using bash's /dev/tcp
+      # since the base image has no nc/curl-to-raw-TCP option. Good
+      # enough to close the gap that let tablet-server (and, before that,
+      # fluss-ice-sync) start against a coordinator that wasn't listening
+      # yet (the "known startup race" doc/querying-with-trino.md's
+      # troubleshooting table documents working around by hand).
+      # Must probe the *bind.listeners* hostname (coordinator-server),
+      # not 127.0.0.1/localhost -- Fluss's NettyServer binds only to the
+      # IP that hostname resolves to, not the loopback interface (hit
+      # directly: the port was demonstrably open per the server's own
+      # logs, yet a 127.0.0.1 probe still got Connection refused).
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/coordinator-server/9123'"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   tablet-server:
     build:
       context: fluss
     command: tabletServer
     depends_on:
-      - coordinator-server
+      coordinator-server:
+        condition: service_healthy
     environment:
       - |
         FLUSS_PROPERTIES=
@@ -103,8 +143,89 @@ services:
     volumes:
       - lakehouse-warehouse:/lakehouse/warehouse
       - fluss-remote-data:/tmp/fluss/remote-data
+    healthcheck:
+      # Same reasoning as coordinator-server's healthcheck above -- probe
+      # bind.listeners' own hostname (tablet-server), not 127.0.0.1.
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/tablet-server/9123'"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # --- Lakehouse Tiering Service (Flink) -----------------------------
+  # Was config/docker/docker-compose.lakehouse.yml, folded in here since
+  # it has no independent-startup use case distinct from the rest of this
+  # file -- it depends on lakehouse-warehouse-init above and is itself a
+  # dependency-free addition, unlike fluss-ice-sync-ui (docker-compose.app.yml),
+  # which has a real reason to stay a separate file (see that file).
+  flink-jobmanager:
+    build:
+      context: flink
+    command: jobmanager
+    ports:
+      - "8081:8081"
+    depends_on:
+      lakehouse-warehouse-init:
+        condition: service_completed_successfully
+    environment:
+      - |
+        FLINK_PROPERTIES=
+        jobmanager.rpc.address: flink-jobmanager
+    volumes:
+      - lakehouse-warehouse:/lakehouse/warehouse
+
+  flink-taskmanager:
+    build:
+      context: flink
+    command: taskmanager
+    depends_on:
+      - flink-jobmanager
+    environment:
+      - |
+        FLINK_PROPERTIES=
+        jobmanager.rpc.address: flink-jobmanager
+        taskmanager.numberOfTaskSlots: 2
+    volumes:
+      - lakehouse-warehouse:/lakehouse/warehouse
+
+  # --- Trino ------------------------------------------------------------
+  # Was config/docker/docker-compose.trino.yml, folded in here for the same
+  # reason as the Flink services above. Runs the stock image directly --
+  # the connector is Trino's own built-in Iceberg connector, so there was
+  # never anything for a custom Dockerfile to add (it was FROM trinodb/trino
+  # verbatim); `image:` says that more directly than a build stanza would.
+  trino-coordinator:
+    image: trinodb/trino:470
+    ports:
+      - "8090:8080"
+    depends_on:
+      lakehouse-warehouse-init:
+        condition: service_completed_successfully
+      iceberg-catalog-db:
+        condition: service_healthy
+    environment:
+      # Passed through so iceberg.properties (config/trino/etc/catalog)
+      # can pick them up via Trino's built-in ${ENV:VAR} substitution — see
+      # the Makefile for the single source of truth these are set from.
+      # The `:-` fallbacks guard a stray `docker compose` call bypassing
+      # `make`, which silently substituted empty strings and broke a
+      # running stack (hit directly) before these were added.
+      ICEBERG_CATALOG_NAME: ${ICEBERG_CATALOG_NAME:-fluss-iceberg-catalog}
+      ICEBERG_CATALOG_URI: ${ICEBERG_CATALOG_URI:-jdbc:postgresql://iceberg-catalog-db:5432/iceberg_catalog}
+      ICEBERG_CATALOG_USER: ${ICEBERG_CATALOG_USER:-iceberg}
+      ICEBERG_CATALOG_PASSWORD: ${ICEBERG_CATALOG_PASSWORD:-iceberg}
+      ICEBERG_WAREHOUSE: ${ICEBERG_WAREHOUSE:-file:///lakehouse/warehouse}
+    volumes:
+      - ../trino/etc:/etc/trino:ro
+      - lakehouse-warehouse:/lakehouse/warehouse
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/v1/info"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
 
 volumes:
   lakehouse-warehouse:
   iceberg-catalog-db-data:
   fluss-remote-data:
+  zookeeper-data:
+  zookeeper-datalog:
