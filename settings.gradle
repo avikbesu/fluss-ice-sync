@@ -2,3 +2,4 @@ rootProject.name = 'fluss-ice-sync'
 
 include ':app:sync'
 include ':app:nl-api'
+include ':app:nl-config'

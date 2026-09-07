@@ -91,5 +91,40 @@ services:
       timeout: 5s
       retries: 5
 
+  # Small internal microservice storing/serving "table config" metadata
+  # (inferred schema + business description/example questions) authored via
+  # fluss-ice-sync-ui's Config tab -- see app/nl-config/README.md. Single
+  # responsibility: no Trino connectivity and no LLM calls of its own;
+  # fluss-ice-sync-nl-api is expected to call GET /api/v1/configs/{id}
+  # server-side to build /ask prompt context for a given config, per that
+  # README's integration note. Deliberately separate from both fluss-ice-sync-nl-api
+  # and fluss-ice-sync-ui rather than folded into either -- it has no Trino
+  # dependency and a completely different storage model (a local
+  # filesystem/volume, not a JDBC connection), so it doesn't share either
+  # service's `depends_on`/lifecycle.
+  fluss-ice-sync-nl-config:
+    build:
+      context: ../..
+      dockerfile: app/nl-config/Dockerfile
+    ports:
+      - "8094:8080"
+    volumes:
+      - ../apps/nl-config/application.yaml:/config/application.yaml:ro
+      # A named Docker volume is a single-writer bind mount under Compose
+      # (fine here -- one replica), but this is NOT the same as a
+      # Kubernetes ReadWriteMany PVC. If this service is ever deployed to
+      # Kubernetes with more than one replica sharing this data, it needs
+      # an RWX-capable volume (e.g. NFS/EFS-backed) -- a default RWO PVC
+      # will not work across pods. See app/nl-config/README.md.
+      - fluss-ice-sync-nl-config-data:/data/configs
+    healthcheck:
+      # See fluss-ice-sync-nl-api's identical healthcheck above for why
+      # /dev/tcp rather than curl/wget.
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/localhost/8080'"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+
 volumes:
   fluss-ice-sync-state:
+  fluss-ice-sync-nl-config-data:
