@@ -1,0 +1,39 @@
+# Config for the nl-api service (app/nl-api). Mounted read-only into the
+# container at /config/application.yaml, matching config/apps/sync/application.yaml
+# and config/apps/ui/application.yaml's existing "one YAML file per app"
+# pattern -- see app/nl-api/src/main/resources/application.yml for the
+# baked-in defaults this overrides (spring.config.import there is what
+# picks this file up).
+#
+# The Claude API key is never read from this file -- only sourced from the
+# ANTHROPIC_API_KEY environment variable (see docker-compose.app.yml and
+# application.yml's `${ANTHROPIC_API_KEY:}` placeholder) -- so this file
+# stays safe to commit, mirroring app/ui/bff's config.ts precedent.
+
+nlapi:
+  trino:
+    # jdbcUrl itself is set by docker-compose.app.yml's NLAPI_TRINO_JDBCURL
+    # environment override (Spring's relaxed binding), not here -- it's an
+    # infra/wiring detail (which container to reach), not an app-behavior
+    # setting, matching the split docker-compose.app.yml's own comments
+    # describe for TRINO_COORDINATOR_URL on the fluss-ice-sync-ui service.
+    user: nl-api-read-role
+    applicationName: fluss-ice-sync-nl-api
+    query:
+      defaultTimeoutSeconds: 30
+      maxTimeoutSeconds: 120
+    preview:
+      defaultRowLimit: 100
+      maxRowLimit: 1000
+    listing:
+      defaultPageSize: 200
+      maxPageSize: 1000
+
+  claude:
+    enabled: false
+    model: claude-sonnet-5
+
+  ask:
+    rateLimit:
+      requestsPerMinute: 20
+      burst: 5

@@ -28,7 +28,7 @@ COMPOSE = docker compose \
 	-f config/docker/docker-compose.app.yml \
 	-f config/docker/docker-compose.monitoring.yml
 
-.PHONY: build test run infra-up up down logs clean reset lakehouse-up lakehouse-submit trino-shell ui-logs
+.PHONY: build test run infra-up up down logs clean reset lakehouse-up lakehouse-submit trino-shell ui-logs nl-api-logs nl-api-test
 
 default: up
 
@@ -79,3 +79,9 @@ trino-shell:
 
 ui-logs:
 	$(COMPOSE) logs -f fluss-ice-sync-ui
+
+nl-api-logs:
+	$(COMPOSE) logs -f fluss-ice-sync-nl-api
+
+nl-api-test: ## Unit tests only (no Docker needed) -- see app/nl-api/README.md for integrationTest, which does
+	./gradlew :app:nl-api:test

@@ -1,0 +1,95 @@
+# Baked-in defaults for the nl-api service. In this repo's Docker Compose
+# deployment these are overridden by config/apps/nl-api/application.yaml,
+# mounted read-only at /config/application.yaml (see docker-compose.app.yml)
+# -- following v0/v1/v2's existing "one YAML file per app, mounted rather
+# than baked into the image" convention. Any property can be further
+# overridden by an environment variable via Spring Boot's relaxed binding
+# (e.g. NLAPI_TRINO_JDBCURL), without needing a new BFF-style
+# per-field env-var name for every setting.
+server:
+  port: 8080
+  shutdown: graceful
+
+spring:
+  application:
+    name: fluss-ice-sync-nl-api
+  lifecycle:
+    # Bounds how long graceful shutdown waits for in-flight requests (and
+    # the queries they hold open) to finish before the JVM exits -- see
+    # QueryExecutorConfig's shutdown hook, which cancels anything still
+    # running once this elapses so a SIGTERM can't hang indefinitely.
+    timeout-per-shutdown-phase: 30s
+  config:
+    import: "optional:file:/config/application.yaml"
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+nlapi:
+  trino:
+    jdbc-url: jdbc:trino://localhost:8080
+    user: nl-api-read-role
+    ssl: false
+    application-name: fluss-ice-sync-nl-api
+    pool:
+      maximum-pool-size: 10
+      minimum-idle: 2
+      connection-timeout: 10s
+      validation-timeout: 5s
+      max-lifetime: 30m
+      keepalive-time: 2m
+    query:
+      default-timeout-seconds: 30
+      max-timeout-seconds: 120
+      executor-pool-size: 16
+    preview:
+      default-row-limit: 100
+      max-row-limit: 1000
+      max-response-bytes: 5000000
+    listing:
+      default-page-size: 200
+      max-page-size: 1000
+    pseudo-tables:
+      enabled: true
+      allowed-suffixes: [snapshots, history, partitions, manifests, files, refs, properties, entries, metadata_log_entries]
+
+  claude:
+    enabled: true
+    # Never set a literal key here -- sourced from the environment only, so
+    # this file (and config/apps/nl-api/application.yaml) stay safe to
+    # commit, matching app/ui/bff's config.ts precedent.
+    api-key: ${ANTHROPIC_API_KEY:}
+    base-url: https://api.anthropic.com
+    model: claude-sonnet-5
+    api-version: "2023-06-01"
+    request-timeout: 20s
+    max-output-tokens: 1024
+    retry:
+      max-attempts: 2
+      wait-duration: 500ms
+    circuit-breaker:
+      failure-rate-threshold: 50
+      sliding-window-size: 20
+      wait-duration-in-open-state: 30s
+      permitted-calls-in-half-open-state: 3
+      minimum-number-of-calls: 10
+
+  ask:
+    max-question-length: 2000
+    max-context-tables: 50
+    max-context-columns-per-table: 100
+    rate-limit:
+      enabled: true
+      requests-per-minute: 20
+      burst: 5
+
+logging:
+  level:
+    com.flusssync.nlapi: INFO

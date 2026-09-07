@@ -50,5 +50,46 @@ services:
       # with no rebuild.
       - ../resources/branding:/branding:ro
 
+  # Standalone, internal-only REST API (Kotlin/Spring Boot) for browsing
+  # Trino catalogs/schemas/tables and asking natural-language questions
+  # over them -- see app/nl-api/README.md. Deliberately separate from
+  # fluss-ice-sync-ui above: it authenticates to Trino as its own dedicated
+  # nl-api-read-role (config/trino/etc/access-control/rules.json), browses
+  # across whatever catalogs that role can see rather than one fixed
+  # catalog/per-schema role, and is meant for programmatic/API callers
+  # rather than the browser-facing query console.
+  fluss-ice-sync-nl-api:
+    build:
+      # Repo-root context -- same reason as fluss-ice-sync's build stanza
+      # above: both are modules of the one multi-module Gradle build, unlike
+      # fluss-ice-sync-ui's fully self-contained Node build.
+      context: ../..
+      dockerfile: app/nl-api/Dockerfile
+    depends_on:
+      trino-coordinator:
+        condition: service_healthy
+    ports:
+      - "8093:8080"
+    environment:
+      NLAPI_TRINO_JDBCURL: "jdbc:trino://trino-coordinator:8080"
+      # Off by default -- same "ship a capability dark until explicitly
+      # turned on" precedent as fluss-ice-sync-ui's CHAT_ENABLED above; /ask
+      # costs real money per call once enabled (see the README).
+      NLAPI_CLAUDE_ENABLED: ${NL_API_ASK_ENABLED:-false}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    volumes:
+      - ../apps/nl-api/application.yaml:/config/application.yaml:ro
+    healthcheck:
+      # eclipse-temurin's JRE base image (see app/nl-api/Dockerfile) has
+      # neither curl nor wget -- bash's /dev/tcp is the same no-extra-tooling
+      # probe docker-compose.infra.yml's Fluss server healthchecks already
+      # use for the identical reason. This only confirms the HTTP port is
+      # accepting connections, not that /actuator/health reports UP; good
+      # enough to gate `depends_on: condition: service_healthy` elsewhere.
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/localhost/8080'"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+
 volumes:
   fluss-ice-sync-state:
