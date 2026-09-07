@@ -125,6 +125,32 @@ services:
       timeout: 5s
       retries: 5
 
+  # Standalone React SPA for trino-nl-api (Ask tab) and
+  # trino-nl-config-service (Config tab) -- see app/nl-ui/README.md.
+  # Deliberately no BFF (unlike fluss-ice-sync-ui above): the browser calls
+  # both backend services directly, so their base URLs below must be
+  # reachable *from the browser on the host*, not from inside the Compose
+  # network -- host-mapped ports (matching fluss-ice-sync-nl-api's 8093 and
+  # fluss-ice-sync-nl-config's 8094 above), never the internal service
+  # DNS names. See the README's "Backend contract gaps": as built today,
+  # neither backend service sends CORS headers, so a browser at this
+  # service's own origin calling either of them cross-origin will be
+  # blocked until that's added there.
+  fluss-ice-sync-nl-ui:
+    build:
+      # Self-contained context (app/nl-ui/), matching fluss-ice-sync-ui's
+      # Node build precedent -- no dependency on the rest of the repo.
+      context: ../../app/nl-ui
+      args:
+        # Vite bakes VITE_* values into the static bundle at build time --
+        # there is no runtime env-var override for an already-built SPA,
+        # unlike every other service in this file. Changing these requires
+        # a rebuild, not just a container restart.
+        VITE_NL_API_BASE_URL: http://localhost:8093
+        VITE_NL_CONFIG_SERVICE_BASE_URL: http://localhost:8094
+    ports:
+      - "8095:8080"
+
 volumes:
   fluss-ice-sync-state:
   fluss-ice-sync-nl-config-data:

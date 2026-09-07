@@ -28,7 +28,7 @@ COMPOSE = docker compose \
 	-f config/docker/docker-compose.app.yml \
 	-f config/docker/docker-compose.monitoring.yml
 
-.PHONY: build test run infra-up up down logs clean reset lakehouse-up lakehouse-submit trino-shell ui-logs nl-api-logs nl-api-test nl-config-logs nl-config-test
+.PHONY: build test run infra-up up down logs clean reset lakehouse-up lakehouse-submit trino-shell ui-logs nl-api-logs nl-api-test nl-config-logs nl-config-test nl-ui-logs nl-ui-test
 
 default: up
 
@@ -91,3 +91,9 @@ nl-config-logs:
 
 nl-config-test:
 	./gradlew :app:nl-config:test
+
+nl-ui-logs:
+	$(COMPOSE) logs -f fluss-ice-sync-nl-ui
+
+nl-ui-test:
+	cd app/nl-ui && npm test
