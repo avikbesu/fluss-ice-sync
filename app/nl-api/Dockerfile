@@ -7,12 +7,14 @@
 
 FROM eclipse-temurin:17-jdk AS build
 WORKDIR /workspace
+ENV GRADLE_USER_HOME=/gradle-cache
+COPY .docker-gradle-cache /gradle-cache
 COPY gradlew settings.gradle build.gradle ./
 COPY gradle gradle
 COPY app/nl-api/build.gradle app/nl-api/build.gradle
-RUN ./gradlew :app:nl-api:dependencies --no-daemon || true
+RUN ./gradlew :app:nl-api:dependencies --no-daemon --offline || true
 COPY app/nl-api/src app/nl-api/src
-RUN ./gradlew :app:nl-api:bootJar --no-daemon
+RUN ./gradlew :app:nl-api:bootJar --no-daemon --offline
 
 FROM eclipse-temurin:17-jre
 WORKDIR /app

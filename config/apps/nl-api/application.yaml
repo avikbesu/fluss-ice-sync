@@ -16,9 +16,9 @@ nlapi:
     # environment override (Spring's relaxed binding), not here -- it's an
     # infra/wiring detail (which container to reach), not an app-behavior
     # setting, matching the split docker-compose.app.yml's own comments
-    # describe for TRINO_COORDINATOR_URL on the fluss-ice-sync-ui service.
+    # describe for TRINO_COORDINATOR_URL on the flino-ui service.
     user: nl-api-read-role
-    applicationName: fluss-ice-sync-nl-api
+    applicationName: flino-nl-api
     query:
       defaultTimeoutSeconds: 30
       maxTimeoutSeconds: 120

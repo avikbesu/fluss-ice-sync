@@ -32,7 +32,7 @@ it.
 ## Why a plain HTTP client for Claude, not the Anthropic Java SDK
 
 `java.net.http.HttpClient` (JDK built-in) plus Jackson (already required
-for the REST layer) -- see [`AnthropicMessagesClient`](src/main/kotlin/com/flusssync/nlapi/claude/AnthropicMessagesClient.kt).
+for the REST layer) -- see [`AnthropicMessagesClient`](src/main/kotlin/com/flino/nlapi/claude/AnthropicMessagesClient.kt).
 Keeps the dependency footprint small, makes the exact wire format (what
 WireMock needs to stub in tests) fully explicit, and this service only
 ever makes one specific call shape (`POST /v1/messages` with a single
@@ -46,7 +46,7 @@ app/nl-api/
 ├── Dockerfile
 ├── README.md                           # this file
 └── src/
-    ├── main/kotlin/com/flusssync/nlapi/
+    ├── main/kotlin/com/flino/nlapi/
     │   ├── NlApiApplication.kt
     │   ├── config/                     # @ConfigurationProperties (TrinoProperties, ClaudeProperties, AskProperties)
     │   ├── trino/                      # Trino JDBC client, SQL validator, metadata service, type mapping, preview streaming
@@ -54,7 +54,7 @@ app/nl-api/
     │   ├── ask/                        # AskService (orchestrates trino + claude), schema-context building
     │   ├── exception/                  # The one exception hierarchy every layer throws into
     │   └── web/                        # Controllers, DTOs, GlobalExceptionHandler
-    └── test/kotlin/com/flusssync/nlapi/
+    └── test/kotlin/com/flino/nlapi/
         ├── trino/, claude/, ask/, web/ # Unit tests (JUnit5 + MockK; WireMock for the Claude HTTP client)
         └── integration/                # Testcontainers (Trino + Postgres/Iceberg-JDBC-catalog), tag "integration"
 ```
@@ -70,12 +70,12 @@ Every statement this service runs -- `SHOW`/`DESCRIBE` text the metadata
 endpoints build internally, and SQL Claude generates for `/ask` -- goes
 through the exact same pipeline:
 
-1. **[`TrinoSqlValidator`](src/main/kotlin/com/flusssync/nlapi/trino/TrinoSqlValidator.kt)**:
+1. **[`TrinoSqlValidator`](src/main/kotlin/com/flino/nlapi/trino/TrinoSqlValidator.kt)**:
    an allowlist of leading statement keywords (`SELECT`, `SHOW`,
    `DESCRIBE`, `EXPLAIN`), robust to whitespace/casing, `--`/`/* */`
    comments, and a `WITH ... AS (...)` CTE prefix hiding a write statement
    behind it -- not a full SQL parser, just enough structure (see
-   [`SqlLexer`](src/main/kotlin/com/flusssync/nlapi/trino/SqlLexer.kt)) to
+   [`SqlLexer`](src/main/kotlin/com/flino/nlapi/trino/SqlLexer.kt)) to
    answer "what statement type is this, really?" correctly despite those
    disguises. Single-statement only (no `;`-stacked second statement).
 2. **A dedicated Trino user/role** (`nl-api-read-role`,
@@ -83,10 +83,10 @@ through the exact same pipeline:
    `SELECT` grants -- Trino's own access control is the backstop if (1)
    somehow had a gap.
 3. **`Connection.setReadOnly(true)`** on every pooled connection
-   ([`TrinoDataSourceConfig`](src/main/kotlin/com/flusssync/nlapi/trino/TrinoDataSourceConfig.kt)) --
+   ([`TrinoDataSourceConfig`](src/main/kotlin/com/flino/nlapi/trino/TrinoDataSourceConfig.kt)) --
    honored by the Iceberg connector.
 4. **Identifiers are always double-quoted, never string-concatenated
-   unquoted** ([`IdentifierQuoting`](src/main/kotlin/com/flusssync/nlapi/trino/IdentifierQuoting.kt)),
+   unquoted** ([`IdentifierQuoting`](src/main/kotlin/com/flino/nlapi/trino/IdentifierQuoting.kt)),
    and every catalog/schema/table name from a URL path or from `/ask`'s
    generated SQL is checked against real `DatabaseMetaData` before it's
    used, not taken on faith -- a Unicode-lookalike or hallucinated name
@@ -94,7 +94,7 @@ through the exact same pipeline:
 
 `/ask` specifically adds a fifth layer: every `catalog.schema.table`
 Claude's structured response claims to have used is cross-checked against
-real metadata (see [`AskService.unresolvedTables`](src/main/kotlin/com/flusssync/nlapi/ask/AskService.kt))
+real metadata (see [`AskService.unresolvedTables`](src/main/kotlin/com/flino/nlapi/ask/AskService.kt))
 *before* the SQL is even handed to the validator above -- a hallucinated
 table name comes back as a clear "couldn't resolve X", not a query that
 reaches Trino at all.
@@ -104,7 +104,7 @@ reaches Trino at all.
 All under `/api/v1`. Every error response has the shape
 `{"code": "SOME_CODE", "message": "...", "details": {...}}` -- never a raw
 JDBC exception message or a stack trace (see
-[`GlobalExceptionHandler`](src/main/kotlin/com/flusssync/nlapi/web/GlobalExceptionHandler.kt)).
+[`GlobalExceptionHandler`](src/main/kotlin/com/flino/nlapi/web/GlobalExceptionHandler.kt)).
 
 ### `GET /catalogs`
 
@@ -122,7 +122,7 @@ out (matches `app/ui`'s existing precedent). Same pagination params/shape
 as above. Failure modes: 404 `CATALOG_NOT_FOUND` if `catalog` doesn't
 exist; 503 `CATALOG_UNAVAILABLE` if it exists but Trino can't currently
 reach that connector (distinct from not existing at all -- see
-[`TrinoExceptionTranslator`](src/main/kotlin/com/flusssync/nlapi/trino/TrinoExceptionTranslator.kt)).
+[`TrinoExceptionTranslator`](src/main/kotlin/com/flino/nlapi/trino/TrinoExceptionTranslator.kt)).
 
 ### `GET /catalogs/{catalog}/schemas/{schema}/tables`
 
@@ -177,14 +177,14 @@ Cancellation: `Statement.setQueryTimeout` (server-side Trino cancel) plus
 this service noticing a broken pipe (client disconnect) and calling
 `Statement.cancel()` itself -- a disconnected client doesn't leave the
 underlying Trino query running (see
-[`PreviewStreamer`](src/main/kotlin/com/flusssync/nlapi/trino/PreviewStreamer.kt)).
+[`PreviewStreamer`](src/main/kotlin/com/flino/nlapi/trino/PreviewStreamer.kt)).
 
 ### `POST /ask`
 
 Body: `{"question": "...", "catalog"?: "...", "schema"?: "..."}`. Response:
 `{"sql", "needsClarification", "clarificationQuestion", "tablesUsed", "columns", "rows", "rowCount", "truncated", "durationMs"}`.
 
-Pipeline (see [`AskService`](src/main/kotlin/com/flusssync/nlapi/ask/AskService.kt)):
+Pipeline (see [`AskService`](src/main/kotlin/com/flino/nlapi/ask/AskService.kt)):
 per-caller rate limit -> build schema context (bounded, see below) ->
 Claude generates structured SQL (forced JSON schema, never free text) ->
 [read-only validation](#read-only-enforcement) -> hallucinated-table check
@@ -216,7 +216,7 @@ uses.
   again), and a circuit breaker (`nlapi.claude.circuit-breaker.*`) that
   fails fast once Claude is clearly down instead of letting every request
   queue up behind it. All configurable; see
-  [`ClaudeResilienceConfig`](src/main/kotlin/com/flusssync/nlapi/claude/ClaudeResilienceConfig.kt).
+  [`ClaudeResilienceConfig`](src/main/kotlin/com/flino/nlapi/claude/ClaudeResilienceConfig.kt).
 * **Cost control**: a per-caller token-bucket rate limit
   (`nlapi.ask.rate-limit.*`, default 20/min + burst 5), keyed on an
   `X-Caller-Id` header if the caller sends one, else remote address. 429
@@ -317,7 +317,7 @@ exist reachable via `catalog.schema."table$suffix"` syntax. Two checks
 apply uniformly: the base table (before `$`) must resolve to a real table,
 and the suffix must be in a fixed allowlist
 (`nlapi.trino.pseudo-tables.allowed-suffixes`) -- never "anything after a
-`$`". See [`PseudoTableName`](src/main/kotlin/com/flusssync/nlapi/trino/PseudoTableName.kt).
+`$`". See [`PseudoTableName`](src/main/kotlin/com/flino/nlapi/trino/PseudoTableName.kt).
 
 ## Edge cases explicitly handled
 
@@ -327,18 +327,18 @@ connectors (identifiers are always quoted, preserving exact case, never
 folded); catalog/schema/table not found vs. temporarily unavailable are
 distinct error codes; `DatabaseMetaData` pattern arguments (catalog/
 schema/table-as-`LIKE`-pattern) are escaped (see
-[`PatternEscaper`](src/main/kotlin/com/flusssync/nlapi/trino/PatternEscaper.kt))
+[`PatternEscaper`](src/main/kotlin/com/flino/nlapi/trino/PatternEscaper.kt))
 so a name containing `_`/`%` can't accidentally match a sibling; every
 listing endpoint is offset/limit paginated with a hard server-side max
 page size; full JDBC type coverage for JSON serialization (ARRAY, MAP,
 DECIMAL, TIMESTAMP WITH TIME ZONE, VARBINARY as base64, UUID, JSON, NULLs
--- see [`TrinoValueMapper`](src/main/kotlin/com/flusssync/nlapi/trino/TrinoValueMapper.kt),
+-- see [`TrinoValueMapper`](src/main/kotlin/com/flino/nlapi/trino/TrinoValueMapper.kt),
 ROW is a documented exception below); connection pool sized and bounded
 independently of HTTP concurrency (`nlapi.trino.pool.*`); graceful
 shutdown (`server.shutdown: graceful` plus
-[`QueryExecutorLifecycle`](src/main/kotlin/com/flusssync/nlapi/trino/QueryExecutorLifecycle.kt),
+[`QueryExecutorLifecycle`](src/main/kotlin/com/flino/nlapi/trino/QueryExecutorLifecycle.kt),
 which cancels any Trino statement still running once the shutdown grace
-period elapses, via [`ActiveStatementRegistry`](src/main/kotlin/com/flusssync/nlapi/trino/ActiveStatementRegistry.kt)).
+period elapses, via [`ActiveStatementRegistry`](src/main/kotlin/com/flino/nlapi/trino/ActiveStatementRegistry.kt)).
 
 ## Edge cases not handled
 

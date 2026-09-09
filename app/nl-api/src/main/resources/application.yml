@@ -12,7 +12,7 @@ server:
 
 spring:
   application:
-    name: fluss-ice-sync-nl-api
+    name: flino-nl-api
   lifecycle:
     # Bounds how long graceful shutdown waits for in-flight requests (and
     # the queries they hold open) to finish before the JVM exits -- see
@@ -37,7 +37,7 @@ nlapi:
     jdbc-url: jdbc:trino://localhost:8080
     user: nl-api-read-role
     ssl: false
-    application-name: fluss-ice-sync-nl-api
+    application-name: flino-nl-api
     pool:
       maximum-pool-size: 10
       minimum-idle: 2
@@ -92,4 +92,4 @@ nlapi:
 
 logging:
   level:
-    com.flusssync.nlapi: INFO
+    com.flino.nlapi: INFO

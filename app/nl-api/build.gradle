@@ -12,7 +12,7 @@ plugins {
 // instead since it isn't a Spring Boot app) -- no jar/mainClass wiring needed
 // beyond this.
 springBoot {
-    mainClass = 'com.flusssync.nlapi.NlApiApplicationKt'
+    mainClass = 'com.flino.nlapi.NlApiApplicationKt'
 }
 
 // Fixed name (rather than Gradle's default "nl-api.jar", which would still

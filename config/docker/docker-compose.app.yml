@@ -1,5 +1,5 @@
 services:
-  fluss-ice-sync:
+  flino:
     build:
       context: ../..
       dockerfile: app/sync/Dockerfile
@@ -11,27 +11,31 @@ services:
     volumes:
       # config/resources/*.yaml were the SyncSource specs directly; they now
       # live under config/resources/spec/ (config/resources/ also holds
-      # config/resources/branding/, unrelated to fluss-ice-sync -- see the
-      # fluss-ice-sync-ui service below). FlussSyncConfigLoader scans its
+      # config/resources/branding/, unrelated to flino -- see the
+      # flino-ui service below). FlinoConfigLoader scans its
       # target directory non-recursively, so the container's /config/resources
       # must land on spec/ directly, not the config/resources/ parent.
       - ../resources/spec:/config/resources:ro
       - ../apps/sync/application.yaml:/config/application.yaml:ro
       - ../../watch:/watch
-      - fluss-ice-sync-state:/state
+      - flino-state:/state
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/healthz"]
       interval: 30s
       timeout: 5s
       retries: 3
 
-  fluss-ice-sync-ui:
+  flino-ui:
     build:
       # Self-contained context (app/ui/), not the repo root -- see
       # app/ui/Dockerfile, which now lives next to what it builds.
       context: ../../app/ui
     depends_on:
       trino-coordinator:
+        condition: service_healthy
+      flino-nl-api:
+        condition: service_healthy
+      flino-config:
         condition: service_healthy
     ports:
       - "8092:8080"
@@ -43,6 +47,17 @@ services:
       # rebuild -- unset by default, so the YAML file's own values apply.
       APP_NAME: ${APP_NAME:-}
       LOGO_URL: ${LOGO_URL:-}
+      # The bff proxies the Ask/Config tabs to these two services over the
+      # Compose network (in-network DNS names, not host-mapped ports) --
+      # see app/ui/bff/src/routes/nlApiProxy.ts and configProxy.ts. This
+      # replaces the old flino-nl-ui service's browser-direct
+      # calls (VITE_NL_API_BASE_URL/VITE_NL_CONFIG_SERVICE_BASE_URL), which
+      # required host-mapped ports and hit CORS since neither backend sends
+      # CORS headers -- routing through the bff keeps the browser
+      # same-origin instead.
+      NL_API_BASE_URL: "http://flino-nl-api:8080"
+      CONFIG_SERVICE_BASE_URL: "http://flino-config:8080"
+      NL_ASK_ENABLED: ${NL_API_ASK_ENABLED:-false}
     volumes:
       - ../apps/ui/application.yaml:/config/application.yaml:ro
       # Swap config/resources/branding/logo.svg (or point LOGO_URL/
@@ -53,16 +68,16 @@ services:
   # Standalone, internal-only REST API (Kotlin/Spring Boot) for browsing
   # Trino catalogs/schemas/tables and asking natural-language questions
   # over them -- see app/nl-api/README.md. Deliberately separate from
-  # fluss-ice-sync-ui above: it authenticates to Trino as its own dedicated
+  # flino-ui above: it authenticates to Trino as its own dedicated
   # nl-api-read-role (config/trino/etc/access-control/rules.json), browses
   # across whatever catalogs that role can see rather than one fixed
   # catalog/per-schema role, and is meant for programmatic/API callers
   # rather than the browser-facing query console.
-  fluss-ice-sync-nl-api:
+  flino-nl-api:
     build:
-      # Repo-root context -- same reason as fluss-ice-sync's build stanza
+      # Repo-root context -- same reason as flino's build stanza
       # above: both are modules of the one multi-module Gradle build, unlike
-      # fluss-ice-sync-ui's fully self-contained Node build.
+      # flino-ui's fully self-contained Node build.
       context: ../..
       dockerfile: app/nl-api/Dockerfile
     depends_on:
@@ -73,7 +88,7 @@ services:
     environment:
       NLAPI_TRINO_JDBCURL: "jdbc:trino://trino-coordinator:8080"
       # Off by default -- same "ship a capability dark until explicitly
-      # turned on" precedent as fluss-ice-sync-ui's CHAT_ENABLED above; /ask
+      # turned on" precedent as flino-ui's CHAT_ENABLED above; /ask
       # costs real money per call once enabled (see the README).
       NLAPI_CLAUDE_ENABLED: ${NL_API_ASK_ENABLED:-false}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
@@ -93,64 +108,47 @@ services:
 
   # Small internal microservice storing/serving "table config" metadata
   # (inferred schema + business description/example questions) authored via
-  # fluss-ice-sync-ui's Config tab -- see app/nl-config/README.md. Single
+  # flino-ui's Config tab -- see app/config/README.md. Single
   # responsibility: no Trino connectivity and no LLM calls of its own;
-  # fluss-ice-sync-nl-api is expected to call GET /api/v1/configs/{id}
+  # flino-nl-api is expected to call GET /api/v1/configs/{id}
   # server-side to build /ask prompt context for a given config, per that
-  # README's integration note. Deliberately separate from both fluss-ice-sync-nl-api
-  # and fluss-ice-sync-ui rather than folded into either -- it has no Trino
+  # README's integration note. Deliberately separate from both flino-nl-api
+  # and flino-ui rather than folded into either -- it has no Trino
   # dependency and a completely different storage model (a local
   # filesystem/volume, not a JDBC connection), so it doesn't share either
   # service's `depends_on`/lifecycle.
-  fluss-ice-sync-nl-config:
+  flino-config:
     build:
       context: ../..
-      dockerfile: app/nl-config/Dockerfile
+      dockerfile: app/config/Dockerfile
     ports:
+      # No longer needed by the browser (flino-ui's bff reaches
+      # this over the Compose network instead -- see that service's
+      # CONFIG_SERVICE_BASE_URL) -- kept host-mapped for direct
+      # curl/debugging access only.
       - "8094:8080"
     volumes:
-      - ../apps/nl-config/application.yaml:/config/application.yaml:ro
+      - ../apps/config/application.yaml:/config/application.yaml:ro
       # A named Docker volume is a single-writer bind mount under Compose
       # (fine here -- one replica), but this is NOT the same as a
       # Kubernetes ReadWriteMany PVC. If this service is ever deployed to
       # Kubernetes with more than one replica sharing this data, it needs
       # an RWX-capable volume (e.g. NFS/EFS-backed) -- a default RWO PVC
-      # will not work across pods. See app/nl-config/README.md.
-      - fluss-ice-sync-nl-config-data:/data/configs
+      # will not work across pods. See app/config/README.md.
+      - flino-config-data:/data/configs
+      # Same SyncSource spec files flino itself reads (see that
+      # service's /config/resources mount above) -- SyncSpecConfigSeeder
+      # auto-imports a starter config for every lakehouse-enabled source,
+      # so the Config tab isn't empty after a fresh `make reset`.
+      - ../resources/spec:/sync-specs:ro
     healthcheck:
-      # See fluss-ice-sync-nl-api's identical healthcheck above for why
+      # See flino-nl-api's identical healthcheck above for why
       # /dev/tcp rather than curl/wget.
       test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/localhost/8080'"]
       interval: 30s
       timeout: 5s
       retries: 5
 
-  # Standalone React SPA for trino-nl-api (Ask tab) and
-  # trino-nl-config-service (Config tab) -- see app/nl-ui/README.md.
-  # Deliberately no BFF (unlike fluss-ice-sync-ui above): the browser calls
-  # both backend services directly, so their base URLs below must be
-  # reachable *from the browser on the host*, not from inside the Compose
-  # network -- host-mapped ports (matching fluss-ice-sync-nl-api's 8093 and
-  # fluss-ice-sync-nl-config's 8094 above), never the internal service
-  # DNS names. See the README's "Backend contract gaps": as built today,
-  # neither backend service sends CORS headers, so a browser at this
-  # service's own origin calling either of them cross-origin will be
-  # blocked until that's added there.
-  fluss-ice-sync-nl-ui:
-    build:
-      # Self-contained context (app/nl-ui/), matching fluss-ice-sync-ui's
-      # Node build precedent -- no dependency on the rest of the repo.
-      context: ../../app/nl-ui
-      args:
-        # Vite bakes VITE_* values into the static bundle at build time --
-        # there is no runtime env-var override for an already-built SPA,
-        # unlike every other service in this file. Changing these requires
-        # a rebuild, not just a container restart.
-        VITE_NL_API_BASE_URL: http://localhost:8093
-        VITE_NL_CONFIG_SERVICE_BASE_URL: http://localhost:8094
-    ports:
-      - "8095:8080"
-
 volumes:
-  fluss-ice-sync-state:
-  fluss-ice-sync-nl-config-data:
+  flino-state:
+  flino-config-data:

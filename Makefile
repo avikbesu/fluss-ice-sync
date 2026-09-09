@@ -28,7 +28,7 @@ COMPOSE = docker compose \
 	-f config/docker/docker-compose.app.yml \
 	-f config/docker/docker-compose.monitoring.yml
 
-.PHONY: build test run infra-up up down logs clean reset lakehouse-up lakehouse-submit trino-shell ui-logs nl-api-logs nl-api-test nl-config-logs nl-config-test nl-ui-logs nl-ui-test
+.PHONY: build test run infra-up up down logs clean reset lakehouse-up lakehouse-submit trino-shell ui-logs ui-test nl-api-logs nl-api-test config-logs config-test
 
 default: up
 
@@ -51,7 +51,7 @@ down:
 	$(COMPOSE) down
 
 logs:
-	$(COMPOSE) logs -f fluss-ice-sync
+	$(COMPOSE) logs -f flino
 
 clean: ## Clean gradle build for all modules
 	./gradlew clean
@@ -78,22 +78,19 @@ trino-shell:
 	$(COMPOSE) exec trino-coordinator trino --user sales-read-role
 
 ui-logs:
-	$(COMPOSE) logs -f fluss-ice-sync-ui
+	$(COMPOSE) logs -f flino-ui
+
+ui-test:
+	cd app/ui/web && npm test && cd ../bff && npm test
 
 nl-api-logs:
-	$(COMPOSE) logs -f fluss-ice-sync-nl-api
+	$(COMPOSE) logs -f flino-nl-api
 
 nl-api-test: ## Unit tests only (no Docker needed) -- see app/nl-api/README.md for integrationTest, which does
 	./gradlew :app:nl-api:test
 
-nl-config-logs:
-	$(COMPOSE) logs -f fluss-ice-sync-nl-config
+config-logs:
+	$(COMPOSE) logs -f flino-config
 
-nl-config-test:
-	./gradlew :app:nl-config:test
-
-nl-ui-logs:
-	$(COMPOSE) logs -f fluss-ice-sync-nl-ui
-
-nl-ui-test:
-	cd app/nl-ui && npm test
+config-test:
+	./gradlew :app:config:test

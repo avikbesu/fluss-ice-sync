@@ -9,4 +9,4 @@ config/docker/.env
 node_modules/
 app/ui/*/dist/
 app/ui/bff/web-dist/
-app/nl-ui/dist/
+.docker-gradle-cache/

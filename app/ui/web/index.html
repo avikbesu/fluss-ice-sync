@@ -3,13 +3,13 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>fluss-ice-sync</title>
+    <title>flino</title>
     <script>
       // Applied before first paint to avoid a flash of the wrong theme --
       // src/theme.ts's useEffect only runs after React's first render.
       (function () {
         try {
-          var stored = window.localStorage.getItem("fluss-ice-sync-ui.theme");
+          var stored = window.localStorage.getItem("flino-ui.theme");
           var theme =
             stored === "light" || stored === "dark"
               ? stored
