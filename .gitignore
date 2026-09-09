@@ -5,6 +5,7 @@ out/
 .idea/
 /watch/
 /state/
+/data/
 config/docker/.env
 node_modules/
 app/ui/*/dist/

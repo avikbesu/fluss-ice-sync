@@ -1,0 +1,30 @@
+# One-shot sample-data generator, deliberately standalone -- not part of
+# $(COMPOSE) in the Makefile, since it has no runtime dependency on the
+# rest of the stack (Fluss/Trino/etc.) and isn't a long-running service.
+# Run via `make seed-banking` (docker compose ... run --rm, not up -d).
+#
+# Uses Data Caterer (https://data.catering/0.19.1/) to generate a
+# relationally-intact simplified banking dataset (party/account/transaction
+# tables with real foreign keys between them) as CSV files -- see
+# config/data-caterer/plan/banking.yaml for the schema/relationships and
+# config/data-caterer/application.conf for the Spark runtime defaults. No
+# seed is set in the plan, so every run produces a different dataset.
+services:
+  data-caterer:
+    image: "datacatering/data-caterer:0.19.1"
+    environment:
+      APPLICATION_CONFIG_PATH: "/opt/app/custom/application.conf"
+      PLAN_FILE_PATH: "/opt/app/custom/plan/banking.yaml"
+      ENABLE_GENERATE_DATA: "true"
+      ENABLE_RECORD_TRACKING: "false"
+      ENABLE_GENERATE_PLAN_AND_TASKS: "false"
+      ENABLE_DELETE_GENERATED_RECORDS: "false"
+      DRIVER_MEMORY: "2g"
+      EXECUTOR_MEMORY: "2g"
+    volumes:
+      - "../data-caterer:/opt/app/custom"
+      # CSVs land directly in the repo's data/banking/ -- see
+      # plan/banking.yaml's per-step `options.path` (each ends in .csv, so
+      # Data Caterer consolidates Spark's part-files into one clean file
+      # per table instead of a part-*.csv directory).
+      - "../../data/banking:/opt/app/data/banking"

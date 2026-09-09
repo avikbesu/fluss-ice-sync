@@ -1,0 +1,764 @@
+# Simplified banking system sample data -- unified Data Caterer plan (see
+# https://data.catering/0.19.1/ and config/docker/docker-compose.seed.yaml).
+#
+# Schema:
+#   party            -- one row per party (person), FK to a contact record
+#                        (1:1) and to an address drawn from a shared pool
+#   party_address    -- independent pool of postal addresses (not 1:1 with
+#                        party -- see note below)
+#   party_contact    -- phone/email/preferred-contact-method details
+#   party_profile    -- a banking profile a party can hold (purpose, risk
+#                        rating) -- independent of party; linked via
+#                        account_contracts
+#   accounts         -- one row per bank account
+#   account_contracts -- junction table: which party (under which profile)
+#                        holds which account, and in what role
+#   transactions     -- one row per transaction against an account
+#
+# All date/timestamp fields represent Australia/Sydney wall-clock time (a
+# generation-range convention -- CSV carries no timezone metadata).
+#
+# No sinkOptions.seed is set on purpose -- every run should produce a
+# different dataset (per the request this was built for), not a
+# reproducible one.
+#
+# **Real Data Caterer 0.19.1 bugs found while building this plan** (all
+# confirmed directly against the real image, not assumptions):
+#
+#   1. When more than one separate `foreignKeys` list entry targets the
+#      same step, only the first one actually gets applied; every other
+#      targeted field silently falls back to random default values instead
+#      of real parent keys.
+#      Worked around: 1:1 relationships (party <-> its contact) use
+#      matching `incremental` sequences instead of a `foreignKeys` block.
+#      Every genuine one-to-many relationship below (accounts ->
+#      account_contracts, accounts -> transactions) uses its own single
+#      `foreignKeys` entry targeting a distinct step, so there's never more
+#      than one entry targeting the same step.
+#
+#   2. `cardinality` (`min`/`max`/`ratio`) on a `foreignKeys` relationship
+#      does not expand the child step's row count -- it silently collapses
+#      to a 1:1 mapping with the parent regardless of what's configured.
+#      Worked around: row-count expansion is driven by the child's own
+#      `count.perField` instead (the other documented mechanism for
+#      "N records per group of field values" -- confirmed to actually work).
+#
+#   3. Adding ANY `foreignKeys` entry targeting a given step -- even a
+#      single one, so bug 1 above doesn't apply -- silently forces EVERY
+#      OTHER foreignKeys-target step in the WHOLE plan to inflate its row
+#      count to match that new entry's source step. Found by giving `party`
+#      a real `foreignKeys` relationship to the 20,000-row `party_address`
+#      pool: party itself ballooned from 500 to 20,000 rows, and
+#      account_contracts/transactions (unrelated relationships, completely
+#      unchanged) ballooned from a few hundred/thousand rows to 60,000
+#      each. Confirmed by direct row-count of the generated CSVs before
+#      and after adding/removing that one relationship.
+#      Worked around: `party.address_id` uses a deterministic SQL hash of
+#      its own `seq` into party_address's known `ADR<8-digit-seq>` id
+#      format instead of a `foreignKeys` relationship -- see that field's
+#      own comment below.
+#
+#   4. A weighted `oneOf` (the `"value->0.35"` syntax) always returns the
+#      LAST listed alternative, for every single row -- confirmed across
+#      every weighted field in this plan (country, currency, account_type,
+#      contact method, boolean flags, etc.), while an *unweighted* `oneOf`
+#      (a plain list with no `->weight`) generates a normal, correctly
+#      varied distribution. Confirmed by checking the actual value
+#      distribution in the generated CSVs, not just that generation
+#      succeeded.
+#      Worked around: every field that needs realistic weighted
+#      probabilities uses a hidden `<field>_bucket` (a `double` field, range
+#      0.0-1.0, `omit: true`) plus a `sql` field with a `CASE` expression
+#      keyed off cumulative thresholds on that bucket value -- confirmed to
+#      produce a real, correctly-weighted distribution (see e.g.
+#      account_contracts.contract_role below, or any `_bucket` field).
+#
+#   5. A field's `sql` cannot see the real value of another field in the
+#      same step that is itself populated via `foreignKeys` -- the
+#      foreignKeys post-processing pass overwrites that field's value
+#      AFTER every per-row `sql` field in the step has already been
+#      evaluated against its placeholder value. Found trying to make
+#      account_contracts.contract_role loan-vs-other aware by extracting
+#      account_type back out of accounts_key (itself populated via
+#      foreignKeys) with `SUBSTRING`: the loan branch never fired, for any
+#      row, in any run -- confirmed by checking the actual role
+#      distribution against each contract's real parent account_type in
+#      the generated CSVs.
+#      Worked around: this can't be fixed inside the plan at all (it's the
+#      tool's generation order, not a syntax issue) -- contract_role below
+#      is generated as a flat weighted pick with no loan-awareness, and
+#      `make seed-banking` runs a small `awk` post-processing pass
+#      afterwards (see the Makefile) that swaps 'Power of Attorney' to
+#      'Guarantor' wherever the parent account's account_type is 'Loan'.
+#
+#   6. A string literal inside one field's `sql` that exactly matches
+#      another field's name in the same step gets corrupted -- found when
+#      `method`'s CASE had a `'merchant'` branch value in the same step as
+#      an (originally named) `merchant` field: every row that should have
+#      been `'merchant'` came out as the literal text `` `_temp_merchant` ``
+#      in the generated CSV (Data Caterer's internal `_temp_<fieldname>`
+#      substitution isn't scoped to SQL string literals vs. identifiers).
+#      Worked around: renamed the field to `merchant_name` -- no fix
+#      needed on the `method` side, since the value and the *other*
+#      field's name no longer match exactly.
+#
+# **party_address is a standalone 20,000-row address pool, not 1:1 with
+# party** -- party (500 rows) picks one `address_id` per row via the
+# deterministic-hash workaround for bug 3 above, not a real relationship.
+# Multiple parties can therefore share the same address; not every address
+# in the pool is guaranteed to be referenced. Good enough for sample data.
+#
+# **account_contracts.contract_role's loan-vs-other split happens outside
+# this plan entirely** -- see bug 5 above. accounts.id still embeds a
+# 2-letter account_type code right after the `ACC` prefix (e.g.
+# `ACCLN00000001` for Loan) purely so the Makefile's post-processing `awk`
+# step can recover each contract's parent account_type from accounts.csv
+# without a real join.
+version: "1.0"
+name: "banking_sample_data"
+description: "Simplified banking system sample data with intact party/account/transaction relationships"
+
+config:
+  flags:
+    enableGenerateData: true
+    enableSaveReports: false
+  generation:
+    numRecordsPerBatch: 100000
+  folders:
+    generatedReportsFolderPath: "/opt/app/data/report"
+
+dataSources:
+  - name: "banking_csv"
+    connection:
+      type: "csv"
+    steps:
+      # ----- party_address ------------------------------------------------
+      # Standalone pool -- 20,000 addresses, not 1:1 with party. See the
+      # file-level comment for why and how party.address_id references it.
+      - name: "party_address"
+        options:
+          path: "/opt/app/data/banking/party_address.csv"
+          header: true
+        count:
+          records: 20000
+        fields:
+          - name: "seq"
+            type: "long"
+            options:
+              incremental: 1
+              omit: true
+          - name: "id"
+            options:
+              sql: "CONCAT('ADR', LPAD(CAST(seq AS STRING), 8, '0'))"
+          - name: "address_line1"
+            options:
+              expression: "#{Address.streetAddress}"
+          - name: "address_line2"
+            options:
+              expression: "#{Address.secondaryAddress}"
+              enableNull: true
+              nullProb: 0.6
+          - name: "city"
+            options:
+              expression: "#{Address.city}"
+          - name: "state"
+            options:
+              expression: "#{Address.state}"
+          - name: "postal_code"
+            options:
+              expression: "#{Address.zipCode}"
+          - name: "country_bucket"
+            type: "double"
+            options:
+              omit: true
+              min: 0.0
+              max: 1.0
+          - name: "country"
+            # AU 60% / NZ 30% / {US, UK, NL, IN} 10% total, split evenly --
+            # see bug 4 in the file-level comment for why this is a bucket
+            # field + CASE instead of a weighted `oneOf`.
+            options:
+              sql: >-
+                CASE
+                  WHEN country_bucket < 0.6 THEN 'AU'
+                  WHEN country_bucket < 0.9 THEN 'NZ'
+                  WHEN country_bucket < 0.925 THEN 'US'
+                  WHEN country_bucket < 0.95 THEN 'UK'
+                  WHEN country_bucket < 0.975 THEN 'NL'
+                  ELSE 'IN'
+                END
+
+      # ----- party_contact --------------------------------------------------
+      - name: "party_contact"
+        options:
+          path: "/opt/app/data/banking/party_contact.csv"
+          header: true
+        count:
+          records: 500
+        fields:
+          - name: "seq"
+            type: "long"
+            options:
+              incremental: 1
+              omit: true
+          - name: "id"
+            options:
+              sql: "CONCAT('CNT', LPAD(CAST(seq AS STRING), 8, '0'))"
+          - name: "contact_channel_bucket"
+            type: "double"
+            options:
+              omit: true
+              min: 0.0
+              max: 1.0
+          - name: "contact_channel"
+            # Drives which of phone_number/email_address is populated below
+            # -- guarantees at least one is always non-null.
+            type: "string"
+            options:
+              omit: true
+              sql: "CASE WHEN contact_channel_bucket < 0.3 THEN 'Phone' WHEN contact_channel_bucket < 0.6 THEN 'Email' ELSE 'Both' END"
+          - name: "phone_raw"
+            type: "string"
+            options:
+              omit: true
+              phone: "AU"
+          - name: "phone_number"
+            options:
+              sql: "CASE WHEN contact_channel = 'Email' THEN NULL ELSE phone_raw END"
+          - name: "email_raw"
+            type: "string"
+            options:
+              omit: true
+              email: ""
+          - name: "email_address"
+            options:
+              sql: "CASE WHEN contact_channel = 'Phone' THEN NULL ELSE email_raw END"
+          - name: "preferred_contact_method_bucket"
+            type: "double"
+            options:
+              omit: true
+              min: 0.0
+              max: 1.0
+          - name: "preferred_contact_method"
+            options:
+              sql: "CASE WHEN preferred_contact_method_bucket < 0.5 THEN 'Mail' ELSE 'Phone' END"
+          - name: "contact_type_bucket"
+            type: "double"
+            options:
+              omit: true
+              min: 0.0
+              max: 1.0
+          - name: "contact_type"
+            options:
+              sql: "CASE WHEN contact_type_bucket < 0.8 THEN 'Personal' ELSE 'Business' END"
+          - name: "is_verified_bucket"
+            type: "double"
+            options:
+              omit: true
+              min: 0.0
+              max: 1.0
+          - name: "is_verified"
+            # Data Caterer's `oneOf` always yields a STRING column ("true"/
+            # "false" text) even when `type: boolean` is declared -- so
+            # every boolean-flag field below is typed "string" to match
+            # what's actually generated (avoids Spark CASE type-mismatch
+            # errors when a field like this is referenced by another).
+            type: "string"
+            options:
+              sql: "CASE WHEN is_verified_bucket < 0.7 THEN 'true' ELSE 'false' END"
+          - name: "created_at"
+            type: "timestamp"
+            options:
+              min: "2015-01-01 00:00:00"
+              max: "2026-09-10 23:59:59"
+          - name: "modified_at"
+            type: "timestamp"
+            options:
+              sql: "created_at + (INTERVAL 1 SECONDS) * CAST(RAND() * 31536000 AS INT)"
+
+      # ----- party ---------------------------------------------------------
+      # contact_id is 1:1 with party_contact via the same `incremental`
+      # sequence (500 rows each); address_id is a deterministic hash into
+      # the 20,000-row party_address pool. See the file-level comment for
+      # both.
+      - name: "party"
+        options:
+          path: "/opt/app/data/banking/party.csv"
+          header: true
+        count:
+          records: 500
+        fields:
+          - name: "seq"
+            type: "long"
+            options:
+              incremental: 1
+              omit: true
+          - name: "id"
+            options:
+              sql: "CONCAT('PTY', LPAD(CAST(seq AS STRING), 8, '0'))"
+          - name: "first_name"
+            options:
+              expression: "#{Name.firstName}"
+          - name: "middle_name"
+            options:
+              expression: "#{Name.firstName}"
+              enableNull: true
+              nullProb: 0.6
+          - name: "last_name"
+            options:
+              expression: "#{Name.lastName}"
+          - name: "date_of_birth"
+            type: "date"
+            options:
+              min: "1940-01-01"
+              max: "2008-12-31"
+          - name: "address_id"
+            # deterministic scattered pick across the 20,000-row
+            # party_address pool -- see the file-level comment (bug 3) for
+            # why this isn't a `foreignKeys` relationship
+            options:
+              sql: "CONCAT('ADR', LPAD(CAST(((seq * 4001 + 977) % 20000) + 1 AS STRING), 8, '0'))"
+          - name: "contact_id"
+            options:
+              sql: "CONCAT('CNT', LPAD(CAST(seq AS STRING), 8, '0'))"
+          - name: "sales_calls_bucket"
+            type: "double"
+            options:
+              omit: true
+              min: 0.0
+              max: 1.0
+          - name: "sales_calls"
+            type: "string"
+            options:
+              sql: "CASE WHEN sales_calls_bucket < 0.4 THEN 'true' ELSE 'false' END"
+          - name: "sales_email_bucket"
+            type: "double"
+            options:
+              omit: true
+              min: 0.0
+              max: 1.0
+          - name: "sales_email"
+            type: "string"
+            options:
+              sql: "CASE WHEN sales_email_bucket < 0.5 THEN 'true' ELSE 'false' END"
+          - name: "closed_bucket"
+            type: "double"
+            options:
+              omit: true
+              min: 0.0
+              max: 1.0
+          - name: "closed"
+            type: "string"
+            options:
+              sql: "CASE WHEN closed_bucket < 0.1 THEN 'true' ELSE 'false' END"
+          - name: "active"
+            type: "boolean"
+            options:
+              sql: "CASE WHEN closed = 'true' THEN false ELSE true END"
+          - name: "created_at"
+            type: "timestamp"
+            options:
+              min: "2015-01-01 00:00:00"
+              max: "2026-09-10 23:59:59"
+          - name: "modified_at"
+            type: "timestamp"
+            options:
+              sql: "created_at + (INTERVAL 1 SECONDS) * CAST(RAND() * 31536000 AS INT)"
+          - name: "closed_at"
+            type: "timestamp"
+            options:
+              sql: "CASE WHEN closed = 'true' THEN created_at + (INTERVAL 1 SECONDS) * CAST(RAND() * 15552000 AS INT) ELSE NULL END"
+
+      # ----- party_profile ---------------------------------------------------
+      - name: "party_profile"
+        options:
+          path: "/opt/app/data/banking/party_profile.csv"
+          header: true
+        count:
+          records: 600
+        fields:
+          - name: "seq"
+            type: "long"
+            options:
+              incremental: 1
+              omit: true
+          - name: "id"
+            options:
+              sql: "CONCAT('PRF', LPAD(CAST(seq AS STRING), 8, '0'))"
+          - name: "profile_name"
+            options:
+              oneOf: ["Retail Banking", "Business Banking", "Private Wealth", "Investment"]
+          - name: "purpose"
+            options:
+              oneOf: ["Personal Banking", "Business Operations", "Investment Management", "Wealth Preservation"]
+          - name: "risk_rating_bucket"
+            type: "double"
+            options:
+              omit: true
+              min: 0.0
+              max: 1.0
+          - name: "risk_rating"
+            options:
+              sql: "CASE WHEN risk_rating_bucket < 0.6 THEN 'Low' WHEN risk_rating_bucket < 0.9 THEN 'Medium' ELSE 'High' END"
+          - name: "created_date"
+            type: "date"
+            options:
+              min: "2015-01-01"
+
+      # ----- accounts --------------------------------------------------------
+      # id embeds a 2-letter account_type code right after the ACC prefix
+      # (LN/DB/CR/SV/CU) so account_contracts can recover account_type from
+      # accounts_key without a cross-step join -- see the file-level comment.
+      - name: "accounts"
+        options:
+          path: "/opt/app/data/banking/accounts.csv"
+          header: true
+        count:
+          records: 400
+        fields:
+          - name: "seq"
+            type: "long"
+            options:
+              incremental: 1
+              omit: true
+          - name: "account_type_bucket"
+            type: "double"
+            options:
+              omit: true
+              min: 0.0
+              max: 1.0
+          - name: "account_type"
+            options:
+              sql: >-
+                CASE
+                  WHEN account_type_bucket < 0.35 THEN 'Saving'
+                  WHEN account_type_bucket < 0.55 THEN 'Current'
+                  WHEN account_type_bucket < 0.70 THEN 'Loan'
+                  WHEN account_type_bucket < 0.85 THEN 'Debit'
+                  ELSE 'Credit'
+                END
+          - name: "id"
+            options:
+              sql: >-
+                CONCAT('ACC',
+                CASE account_type
+                  WHEN 'Loan' THEN 'LN'
+                  WHEN 'Debit' THEN 'DB'
+                  WHEN 'Credit' THEN 'CR'
+                  WHEN 'Saving' THEN 'SV'
+                  ELSE 'CU'
+                END,
+                LPAD(CAST(seq AS STRING), 8, '0'))
+          - name: "closed_bucket"
+            type: "double"
+            options:
+              omit: true
+              min: 0.0
+              max: 1.0
+          - name: "closed"
+            type: "string"
+            options:
+              sql: "CASE WHEN closed_bucket < 0.15 THEN 'true' ELSE 'false' END"
+          - name: "frozen_raw_bucket"
+            type: "double"
+            options:
+              omit: true
+              min: 0.0
+              max: 1.0
+          - name: "frozen_raw"
+            type: "string"
+            options:
+              omit: true
+              sql: "CASE WHEN frozen_raw_bucket < 0.05 THEN 'true' ELSE 'false' END"
+          - name: "frozen"
+            type: "string"
+            options:
+              sql: "CASE WHEN closed = 'true' THEN 'false' ELSE frozen_raw END"
+          - name: "status"
+            type: "boolean"
+            options:
+              sql: "CASE WHEN closed = 'true' OR frozen = 'true' THEN false ELSE true END"
+          - name: "risk_score"
+            type: "double"
+            options:
+              min: 0.0
+              max: 1.0
+          - name: "currency_bucket"
+            type: "double"
+            options:
+              omit: true
+              min: 0.0
+              max: 1.0
+          - name: "currency"
+            options:
+              sql: >-
+                CASE
+                  WHEN currency_bucket < 0.5 THEN 'AUD'
+                  WHEN currency_bucket < 0.7 THEN 'NZD'
+                  WHEN currency_bucket < 0.8 THEN 'USD'
+                  WHEN currency_bucket < 0.9 THEN 'GBP'
+                  WHEN currency_bucket < 0.95 THEN 'EUR'
+                  ELSE 'INR'
+                END
+          - name: "interest_rate_raw"
+            type: "double"
+            options:
+              omit: true
+              min: 0.5
+              max: 12.0
+          - name: "interest_rate"
+            type: "double"
+            options:
+              sql: "CASE WHEN account_type IN ('Loan', 'Saving') THEN interest_rate_raw ELSE NULL END"
+          - name: "credit_limit_raw"
+            type: "double"
+            options:
+              omit: true
+              min: 500.0
+              max: 20000.0
+          - name: "credit_limit"
+            type: "double"
+            options:
+              sql: "CASE WHEN account_type = 'Credit' THEN credit_limit_raw ELSE NULL END"
+          - name: "open_date"
+            type: "date"
+            options:
+              min: "2015-01-01"
+              max: "2026-06-30"
+          - name: "close_date_raw"
+            type: "date"
+            options:
+              omit: true
+              min: "2015-02-01"
+              max: "2026-09-10"
+          - name: "close_date"
+            type: "date"
+            options:
+              sql: "CASE WHEN closed = 'true' THEN close_date_raw ELSE NULL END"
+
+      # ----- account_contracts ------------------------------------------------
+      # Junction table: links an account, the party holding it, and which
+      # profile the party is holding it under.
+      #
+      # accounts_key is the one genuine one-to-many relationship here (1-3
+      # contracts per account, e.g. joint accounts) -- populated via the
+      # foreignKeys block below, with row-count expansion driven by
+      # `count.perField` (the only combination confirmed to work -- see the
+      # file-level comment). party_key/party_profile_key are populated by
+      # cycling deterministically through party/party_profile's own
+      # `incremental` ranges (500 and 600 respectively) via modulo -- every
+      # value this produces is guaranteed to exist in the parent table,
+      # just not randomly sampled the way accounts_key is.
+      - name: "account_contracts"
+        options:
+          path: "/opt/app/data/banking/account_contracts.csv"
+          header: true
+        count:
+          records: 400
+          perField:
+            fieldNames: ["accounts_key"]
+            options:
+              min: 1
+              max: 3
+        fields:
+          - name: "row_seq"
+            type: "long"
+            options:
+              incremental: 1
+              omit: true
+          - name: "id"
+            options:
+              sql: "CONCAT('CTR', LPAD(CAST(row_seq AS STRING), 10, '0'))"
+          - name: "accounts_key"
+            # populated via the foreignKeys block below (1-3 contracts/account)
+          - name: "party_key"
+            options:
+              sql: "CONCAT('PTY', LPAD(CAST(((row_seq - 1) % 500) + 1 AS STRING), 8, '0'))"
+          - name: "party_profile_key"
+            options:
+              sql: "CONCAT('PRF', LPAD(CAST(((row_seq - 1) % 600) + 1 AS STRING), 8, '0'))"
+          - name: "role_bucket"
+            # single random draw per row -- referenced (not re-rolled) by
+            # every branch below so the weights below are the real weights
+            type: "double"
+            options:
+              omit: true
+              min: 0.0
+              max: 1.0
+          - name: "contract_role"
+            # Flat weighted pick -- Power of Attorney here becomes
+            # Guarantor for Loan accounts via the Makefile's post-
+            # processing step, not here. See bug 5 in the file-level
+            # comment for why this can't be done in-plan.
+            options:
+              sql: >-
+                CASE
+                  WHEN role_bucket < 0.5 THEN 'Primary Account Holder'
+                  WHEN role_bucket < 0.8 THEN 'Joint Account Holder'
+                  WHEN role_bucket < 0.92 THEN 'Mandate Holder'
+                  ELSE 'Power of Attorney'
+                END
+          - name: "contract_start_date"
+            type: "date"
+            options:
+              min: "2015-01-01"
+              max: "2026-06-30"
+          - name: "end_null_bucket"
+            type: "double"
+            options:
+              omit: true
+              min: 0.0
+              max: 1.0
+          - name: "end_offset_days"
+            type: "double"
+            options:
+              omit: true
+              min: 30.0
+              max: 1500.0
+          - name: "contract_end_date"
+            type: "date"
+            options:
+              sql: "CASE WHEN end_null_bucket < 0.7 THEN NULL ELSE DATE_ADD(contract_start_date, CAST(end_offset_days AS INT)) END"
+          - name: "is_active"
+            type: "boolean"
+            options:
+              sql: "CASE WHEN contract_end_date IS NULL THEN true ELSE false END"
+
+      # ----- transactions ------------------------------------------------
+      # accounts_FK: 5-50 transactions per account -- same
+      # foreignKeys-plus-count.perField pattern as account_contracts above.
+      - name: "transactions"
+        options:
+          path: "/opt/app/data/banking/transactions.csv"
+          header: true
+        count:
+          records: 400
+          perField:
+            fieldNames: ["accounts_FK"]
+            options:
+              min: 5
+              max: 50
+        fields:
+          - name: "id"
+            options:
+              regex: "TXN[0-9]{12}"
+              isUnique: true
+          - name: "accounts_FK"
+            # populated via the foreignKeys block below
+          - name: "transaction_type_bucket"
+            type: "double"
+            options:
+              omit: true
+              min: 0.0
+              max: 1.0
+          - name: "transaction_type"
+            options:
+              sql: >-
+                CASE
+                  WHEN transaction_type_bucket < 0.25 THEN 'deposit'
+                  WHEN transaction_type_bucket < 0.5 THEN 'withdrawal'
+                  WHEN transaction_type_bucket < 0.7 THEN 'transfer'
+                  WHEN transaction_type_bucket < 0.85 THEN 'payment'
+                  WHEN transaction_type_bucket < 0.95 THEN 'charges'
+                  ELSE 'interest'
+                END
+          - name: "transaction_amount"
+            type: "double"
+            options:
+              min: 1.00
+              max: 25000.00
+          - name: "currency_bucket"
+            type: "double"
+            options:
+              omit: true
+              min: 0.0
+              max: 1.0
+          - name: "currency"
+            options:
+              sql: >-
+                CASE
+                  WHEN currency_bucket < 0.5 THEN 'AUD'
+                  WHEN currency_bucket < 0.7 THEN 'NZD'
+                  WHEN currency_bucket < 0.8 THEN 'USD'
+                  WHEN currency_bucket < 0.9 THEN 'GBP'
+                  WHEN currency_bucket < 0.95 THEN 'EUR'
+                  ELSE 'INR'
+                END
+          - name: "transaction_date"
+            type: "timestamp"
+            options:
+              min: "2023-01-01 00:00:00"
+              max: "2026-09-10 23:59:59"
+          - name: "method_bucket"
+            type: "double"
+            options:
+              omit: true
+              min: 0.0
+              max: 1.0
+          - name: "method"
+            options:
+              sql: >-
+                CASE
+                  WHEN method_bucket < 0.25 THEN 'atm'
+                  WHEN method_bucket < 0.5 THEN 'netbanking'
+                  WHEN method_bucket < 0.7 THEN 'cc'
+                  WHEN method_bucket < 0.85 THEN 'dc'
+                  WHEN method_bucket < 0.95 THEN 'merchant'
+                  ELSE 'qr'
+                END
+          - name: "entry_rand"
+            type: "double"
+            options:
+              omit: true
+              min: 0.0
+              max: 1.0
+          - name: "entry_type"
+            # deposit/interest are always credits, withdrawal/charges are
+            # always debits; transfer/payment can be either
+            options:
+              sql: >-
+                CASE
+                  WHEN transaction_type IN ('deposit', 'interest') THEN 'credit'
+                  WHEN transaction_type IN ('withdrawal', 'charges') THEN 'debit'
+                  WHEN entry_rand < 0.5 THEN 'credit'
+                  ELSE 'debit'
+                END
+          - name: "merchant_raw"
+            options:
+              omit: true
+              expression: "#{Company.name}"
+          - name: "merchant_name"
+            # only populated for payment/withdrawal transactions. Named
+            # merchant_name, not merchant, to avoid an exact-string
+            # collision with the literal 'merchant' value in method's CASE
+            # above -- Data Caterer's internal `_temp_<fieldname>`
+            # substitution isn't scoped to identifiers, so a field named
+            # exactly `merchant` silently corrupted that string literal
+            # into the literal text `_temp_merchant` in method's output.
+            # Confirmed via the generated CSV, not just a hunch.
+            options:
+              sql: "CASE WHEN transaction_type IN ('payment', 'withdrawal') THEN merchant_raw ELSE NULL END"
+          - name: "description"
+            options:
+              sql: "CONCAT(INITCAP(transaction_type), ' via ', UPPER(method), CASE WHEN merchant_name IS NOT NULL THEN CONCAT(' at ', merchant_name) ELSE '' END)"
+
+foreignKeys:
+  # accounts -> account_contracts (1-3 contracts per account, e.g. joint accounts)
+  - source:
+      dataSource: "banking_csv"
+      step: "accounts"
+      fields: ["id"]
+    generate:
+      - dataSource: "banking_csv"
+        step: "account_contracts"
+        fields: ["accounts_key"]
+
+  # accounts -> transactions (5-50 transactions per account)
+  - source:
+      dataSource: "banking_csv"
+      step: "accounts"
+      fields: ["id"]
+    generate:
+      - dataSource: "banking_csv"
+        step: "transactions"
+        fields: ["accounts_FK"]
