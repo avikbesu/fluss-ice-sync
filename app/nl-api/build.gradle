@@ -1,0 +1,88 @@
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+
+plugins {
+    id 'org.jetbrains.kotlin.jvm' version '2.1.20'
+    id 'org.jetbrains.kotlin.plugin.spring' version '2.1.20'
+    id 'org.springframework.boot' version '3.5.16'
+    id 'io.spring.dependency-management' version '1.1.7'
+}
+
+// The Spring Boot plugin's own `bootJar`/`bootRun` replace the `application`
+// plugin's role here (see app/sync/build.gradle, which uses `application`
+// instead since it isn't a Spring Boot app) -- no jar/mainClass wiring needed
+// beyond this.
+springBoot {
+    mainClass = 'com.flino.nlapi.NlApiApplicationKt'
+}
+
+// Fixed name (rather than Gradle's default "nl-api.jar", which would still
+// be stable today but only because no subproject in this repo sets
+// `version`) so app/nl-api/Dockerfile's COPY path never needs to guess it.
+tasks.named('bootJar') {
+    archiveFileName = 'app.jar'
+}
+
+def resilience4jVersion = '2.4.0'
+
+dependencies {
+    implementation 'org.springframework.boot:spring-boot-starter-web'
+    implementation 'org.springframework.boot:spring-boot-starter-validation'
+    implementation 'org.springframework.boot:spring-boot-starter-actuator'
+    implementation 'com.fasterxml.jackson.module:jackson-module-kotlin'
+    implementation 'org.jetbrains.kotlin:kotlin-reflect'
+
+    implementation 'io.trino:trino-jdbc:470'
+    implementation 'com.zaxxer:HikariCP'
+
+    implementation "io.github.resilience4j:resilience4j-circuitbreaker:${resilience4jVersion}"
+    implementation "io.github.resilience4j:resilience4j-retry:${resilience4jVersion}"
+
+    testImplementation('org.springframework.boot:spring-boot-starter-test') {
+        // JUnit5 + MockK is this module's mocking stack (see the build
+        // prompt) -- Mockito would just be dead weight and an easy way to
+        // accidentally mix mocking libraries in the same test.
+        exclude group: 'org.mockito'
+    }
+    testImplementation 'io.mockk:mockk:1.14.11'
+    // The plain "wiremock" artifact doesn't bundle an embedded HTTP server
+    // implementation in 3.x -- "wiremock-standalone" is the shaded jar that
+    // includes Jetty, needed to actually start a WireMockServer in-process
+    // (see AnthropicMessagesClientTest).
+    testImplementation 'org.wiremock:wiremock-standalone:3.13.2'
+    testImplementation 'org.testcontainers:junit-jupiter:1.21.4'
+    testImplementation 'org.testcontainers:trino:1.21.4'
+    // Backs the Iceberg JDBC catalog in the integration Trino container --
+    // the same catalog type config/trino/etc/catalog/iceberg.properties
+    // uses in this repo's real deployment (see doc/design/v1-trino-integration-design.md).
+    testImplementation 'org.testcontainers:postgresql:1.21.4'
+    testImplementation 'org.postgresql:postgresql:42.7.4'
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget = JvmTarget.JVM_17
+        freeCompilerArgs.add('-Xjsr305=strict')
+    }
+}
+
+test {
+    useJUnitPlatform {
+        // Integration tests (Testcontainers-backed, tagged "integration") need
+        // a Docker daemon and are comparatively slow -- excluded from the
+        // default `test` task so `./gradlew :app:nl-api:test` stays fast and
+        // runnable without Docker, matching v0/v1's Docker-optional local dev
+        // loop. `integrationTest` below runs them explicitly.
+        excludeTags 'integration'
+    }
+}
+
+tasks.register('integrationTest', Test) {
+    description = 'Runs Testcontainers-backed integration tests (requires Docker).'
+    group = 'verification'
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform {
+        includeTags 'integration'
+    }
+    shouldRunAfter test
+}

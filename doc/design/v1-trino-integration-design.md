@@ -6,7 +6,7 @@
 | **Author** | Avik Mandal |
 | **Last updated** | 2026-08-26 |
 | **Reviewers** | TBD |
-| **Depends on** | [Fluss Sync: Design Doc (v0)](./v0-fluss-ice-sync-design.md) |
+| **Depends on** | [Flino: Design Doc (v0)](./v0-flino-design.md) |
 
 ## Objective
 
@@ -39,7 +39,7 @@ tiering interval's staleness instead of true real-time reads (which remains
 Flink's job, via Fluss's "union read" of the live log plus the lake table).
 
 This doc designs the pieces needed to stand that path up for every table
-fluss-ice-sync currently manages: enabling tiering on those tables, running the
+flino currently manages: enabling tiering on those tables, running the
 tiering service, and configuring Trino to see the result as ordinary SQL
 schemas and tables. **v1 tiers into Apache Iceberg, not Paimon** — an
 earlier iteration of this design chose Paimon and got as far as a working
@@ -98,8 +98,8 @@ Iceberg path needs no custom Trino plugin at all.
 
 ```mermaid
 flowchart TB
-    subgraph SYNC["fluss-ice-sync (v0)"]
-        FS["fluss-ice-sync"]
+    subgraph SYNC["flino (v0)"]
+        FS["flino"]
     end
 
     FLUSS[["Fluss cluster<br/>crm.customer_accounts (PRIMARY_KEY)<br/>sales.partner_orders_raw (LOG)"]]
@@ -130,7 +130,7 @@ flowchart TB
 
 At a high level:
 
-1. **fluss-ice-sync** (v0, unchanged) writes rows into Fluss tables as before.
+1. **flino** (v0, unchanged) writes rows into Fluss tables as before.
 2. A `SyncSource` that sets `spec.destination.lakehouse.enabled: true` causes
    its destination table to be created with Fluss's `table.datalake.enabled`
    property set, marking it eligible for tiering.
@@ -145,7 +145,7 @@ At a high level:
    pointed at that same Postgres database, sees every table the tiering job
    has registered. Every Fluss database becomes a Trino schema; every table,
    a Trino table — automatically, because Trino reads the catalog's own
-   metadata rather than any fluss-ice-sync- or Trino-specific registry.
+   metadata rather than any flino- or Trino-specific registry.
 5. Analysts/BI tools query Trino with ordinary SQL, e.g.
    `SELECT * FROM iceberg.sales.partner_orders_raw WHERE order_ts > ...`.
 
@@ -165,13 +165,13 @@ At a high level:
 > the root `Makefile`/`config/docker/` for the current structure.
 
 ```
-fluss-ice-sync/
+flino/
 ├── app/
 │   └── sync/                    # unchanged from v0
 ├── config/
 │   ├── docker/
 │   │   ├── docker-compose.infra.yml       # unchanged (ZooKeeper + Fluss)
-│   │   ├── docker-compose.app.yml         # unchanged (fluss-ice-sync)
+│   │   ├── docker-compose.app.yml         # unchanged (flino)
 │   │   ├── docker-compose.monitoring.yml  # unchanged
 │   │   ├── docker-compose.lakehouse.yml   # NEW: Flink JobManager/TaskManager
 │   │   │                                  #      running the tiering job
@@ -193,7 +193,7 @@ fluss-ice-sync/
 │               └── iceberg.properties     # JDBC catalog + warehouse path
 ├── doc/
 │   └── design/
-│       ├── v0-fluss-ice-sync-design.md
+│       ├── v0-flino-design.md
 │       └── v1-trino-integration-design.md  # this file
 ├── gradle/ ...
 └── Makefile                     # gains lakehouse-up / lakehouse-submit / trino-shell targets
@@ -203,14 +203,14 @@ fluss-ice-sync/
   `docker-compose.trino.yml` were, at the time, separate compose files (not
   folded into `docker-compose.app.yml`), following v0's convention of one
   file per concern combined with `-f` flags — this lets `make infra-up` /
-  `make run` continue to work without Trino/Flink for a plain fluss-ice-sync
+  `make run` continue to work without Trino/Flink for a plain flino
   dev loop, and lets Trino be brought up (or torn down) independently of the
   tiering job while debugging either in isolation. (Later folded into
   `docker-compose.infra.yml` — see the note atop this section.)
 * `config/trino/` is a new sibling of `config/resources/` and
   `config/apps/`, not nested under `app/sync/` — neither Flink's tiering
-  job nor Trino is part of the `fluss-ice-sync` Java application; they are
-  separately deployed processes that happen to read data fluss-ice-sync
+  job nor Trino is part of the `flino` Java application; they are
+  separately deployed processes that happen to read data flino
   produced. There is no `config/lakehouse/` directory — *which* tables get
   tiered is driven entirely by each table's own `table.datalake.enabled`
   property (set from `SyncSource.spec.destination.lakehouse`), not a
@@ -268,11 +268,11 @@ fluss-ice-sync/
       enabled: true             # NEW in v1; default from application.yaml if omitted
 ```
 
-* `lakehouse.enabled: true` causes fluss-ice-sync's table-creation call (the
-  same `Admin` API call from v0's [Streaming into Fluss](./v0-fluss-ice-sync-design.md#streaming-into-fluss))
+* `lakehouse.enabled: true` causes flino's table-creation call (the
+  same `Admin` API call from v0's [Streaming into Fluss](./v0-flino-design.md#streaming-into-fluss))
   to also set Fluss's `table.datalake.enabled` table property, which is what
   makes the table visible to the Lakehouse Tiering Service. This is the only
-  code change v1 requires in fluss-ice-sync itself — no new write path, no
+  code change v1 requires in flino itself — no new write path, no
   change to `AppendWriter`/`UpsertWriter` usage.
 * `application.yaml` gains a matching default:
 
@@ -286,7 +286,7 @@ fluss-ice-sync/
   safe, explicit default rather than silently tiering every source's data
   (some sources may carry data an owner doesn't want duplicated into a
   general-access lake).
-* fluss-ice-sync does **not** itself talk to Trino, the tiering job, or the
+* flino does **not** itself talk to Trino, the tiering job, or the
   warehouse — its only responsibility is setting the table property at
   creation time. Everything downstream of that (tiering, Trino catalog
   visibility) is driven by Fluss's and Trino's own metadata, which is the
@@ -313,7 +313,7 @@ fluss-ice-sync/
   PostgreSQL JDBC driver (needed by Iceberg's `JdbcCatalog`, see below —
   Trino bundles this driver itself, but the tiering job does not).
 * Enabling datalake integration is **cluster-wide Fluss server config**, not
-  something fluss-ice-sync or the tiering job sets per write: `docker-compose.infra.yml`
+  something flino or the tiering job sets per write: `docker-compose.infra.yml`
   sets `datalake.format: iceberg`, `datalake.iceberg.type: jdbc`, and the
   JDBC connection properties (below) on both `coordinator-server` and
   `tablet-server`. *Which* tables actually get tiered is still driven
@@ -331,13 +331,13 @@ fluss-ice-sync/
 * **Freshness is a per-table Fluss property, not a job-level parameter**:
   `table.datalake.freshness` (e.g. `"30s"`), set alongside
   `table.datalake.enabled` from `SyncSource.spec.destination.lakehouse.freshness`
-  (default `30s`, see [Application configuration](./v0-fluss-ice-sync-design.md#application-configuration)-style
+  (default `30s`, see [Application configuration](./v0-flino-design.md#application-configuration)-style
   global default in `application.yaml`'s `spec.lakehouse.defaultFreshness`).
   This is the direct, per-source-tunable answer to "how stale can Trino's
   view be" referenced in [Open Questions](#open-questions).
 * If the tiering job is down, the warehouse (and therefore Trino) simply
   stops advancing — the last successfully tiered snapshot remains queryable
-  and correct, just increasingly stale. It does not affect fluss-ice-sync's
+  and correct, just increasingly stale. It does not affect flino's
   ingestion path (see [Failure modes](#failure-modes-and-guarantees)).
 
 ### Lake warehouse, catalog, and table format: Iceberg
@@ -348,7 +348,7 @@ fluss-ice-sync/
   pointers as rows, not data) — with the actual Parquet data/metadata files
   on a shared bind-mounted volume (`file:///lakehouse/warehouse`, same as
   v0's "simplest thing that works" precedent from
-  [Deployment](./v0-fluss-ice-sync-design.md#deployment)). Both the tiering job
+  [Deployment](./v0-flino-design.md#deployment)). Both the tiering job
   and Trino's `iceberg` catalog point at the same Postgres database and the
   same warehouse path.
 * **Why Iceberg and not Paimon (the original choice):** Paimon's own
@@ -542,7 +542,7 @@ union-read capability), not through this Trino path. See
   that flips this flag on an existing source with sensitive columns.
 * **`crm-read-role` / `sales-read-role` are new roles introduced by this
   design** — v0's `spec.security.roles` names only *write* roles used by
-  fluss-ice-sync's own service identity against Fluss. Provisioning these read
+  flino's own service identity against Fluss. Provisioning these read
   roles (and deciding who holds them) is an access-management action
   outside this repo's config surface; this doc only specifies the naming
   convention and the grants in `rules.json`, not the identity system that
@@ -561,10 +561,10 @@ union-read capability), not through this Trino path. See
 
 | Scenario | Behavior |
 |---|---|
-| Tiering job down/crashed | Trino continues serving the last successfully tiered snapshot; fluss-ice-sync ingestion into Fluss is unaffected |
+| Tiering job down/crashed | Trino continues serving the last successfully tiered snapshot; flino ingestion into Fluss is unaffected |
 | `SyncSource` table created with `lakehouse.enabled: false` (or omitted, default false) | Table exists and is written to normally in Fluss; it does not appear in Trino until a config change sets `enabled: true` and the table is recreated or the property is set via Fluss `Admin` |
-| Warehouse (filesystem) or `iceberg-catalog-db` (Postgres) unreachable from Trino | Queries against the `iceberg` catalog fail with a connector error; other catalogs (if any exist later) are unaffected; fluss-ice-sync's write path to Fluss is unaffected |
-| `SyncSource` adds/removes a column after its table already exists | Same caveat as v0's [Non-Goals](./v0-fluss-ice-sync-design.md#non-goals) — fluss-ice-sync does not reconcile schema drift on the Fluss table itself, so the tiered Iceberg table (and Trino's view of it) reflects whatever the Fluss table's schema was, unchanged |
+| Warehouse (filesystem) or `iceberg-catalog-db` (Postgres) unreachable from Trino | Queries against the `iceberg` catalog fail with a connector error; other catalogs (if any exist later) are unaffected; flino's write path to Fluss is unaffected |
+| `SyncSource` adds/removes a column after its table already exists | Same caveat as v0's [Non-Goals](./v0-flino-design.md#non-goals) — flino does not reconcile schema drift on the Fluss table itself, so the tiered Iceberg table (and Trino's view of it) reflects whatever the Fluss table's schema was, unchanged |
 | Trino query against a schema the caller's role isn't granted `SELECT` on | Rejected by file-based access control before the query reaches the `iceberg` connector |
 | Trino's `iceberg.jdbc-catalog.catalog-name` doesn't match the tiering job's catalog name | No error — `SHOW SCHEMAS` silently returns empty, since the catalog scopes rows by name (hit directly, see [Trino](#trino)) |
 
@@ -586,7 +586,7 @@ union-read capability), not through this Trino path. See
 
 * **Config loading** — a `SyncSourceConfigLoaderTest`-style unit test (see
   v0's existing test at
-  `app/sync/src/test/java/com/flusssync/config/SyncSourceConfigLoaderTest.java`)
+  `app/sync/src/test/java/com/flino/config/SyncSourceConfigLoaderTest.java`)
   covering the new `spec.destination.lakehouse.enabled` field: present and
   `true`, present and `false`, and omitted (falls back to
   `application.yaml`'s `lakehouse.enabledByDefault`). Both loaders also
@@ -615,7 +615,7 @@ union-read capability), not through this Trino path. See
 * **End-to-end tiering-to-Trino path** — a Compose-based smoke test (`make
   up` against a source with `lakehouse.enabled: true`, then `make
   trino-shell` and query the resulting `iceberg.<db>.<table>`) confirming
-  rows written by fluss-ice-sync are visible in Trino within one tiering
+  rows written by flino are visible in Trino within one tiering
   interval. **This was actually run against the full stack** (not just
   designed) — `make up`, `make lakehouse-submit`, dropping a CSV into
   `watch/partner-orders/`, and querying `iceberg.sales.partner_orders_raw`
@@ -653,7 +653,7 @@ flowchart TB
             INIT["lakehouse-warehouse-init<br/>(one-shot ACL fix, NEW)"]
         end
         subgraph APP["docker-compose.app.yml (v0)"]
-            FS["fluss-ice-sync"]
+            FS["flino"]
         end
         subgraph LAKE["docker-compose.lakehouse.yml (NEW)"]
             JM["flink-jobmanager"] --- TM["flink-taskmanager"]
@@ -690,7 +690,7 @@ flowchart TB
   `coordinator-server`, `tablet-server`, the Flink TaskManager (write), and
   Trino (read) — a Docker named volume rather than a host bind mount, so it
   isn't tied to a specific host path, same pattern v0 uses for
-  `fluss-ice-sync-state`.
+  `flino-state`.
 * Trino runs as a single node for v1 (coordinator doubling as worker,
   matching v0's Compose-scale simplicity) rather than
   coordinator-plus-worker — see [Open Questions](#open-questions) on
@@ -698,7 +698,7 @@ flowchart TB
 
 ## Rollout Plan
 
-v1 is additive to v0: no existing `SyncSource`, table, or fluss-ice-sync code
+v1 is additive to v0: no existing `SyncSource`, table, or flino code
 path changes behavior unless a source explicitly sets
 `lakehouse.enabled: true`. This makes a staged rollout straightforward
 rather than requiring a feature flag or dual-write mechanism:
@@ -722,7 +722,7 @@ rather than requiring a feature flag or dual-write mechanism:
 **Rollback:** setting a source's `lakehouse.enabled` back to `false` (or
 tearing down `docker-compose.lakehouse.yml`/`docker-compose.trino.yml`
 entirely) stops tiering and removes Trino access respectively; it does not
-touch Fluss or fluss-ice-sync's write path, since tiering is a read-only
+touch Fluss or flino's write path, since tiering is a read-only
 consumer of Fluss data. The Iceberg warehouse's existing tiered data is left
 in place (not automatically deleted) so rollback is non-destructive; manual
 cleanup of the warehouse volume and `iceberg-catalog-db` is a separate,

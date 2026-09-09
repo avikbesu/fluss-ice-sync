@@ -12,6 +12,7 @@ export type ChatResult = QueryResult & { sql: string };
 
 export type AppUiConfig = {
   chatEnabled: boolean;
+  askEnabled: boolean;
   schemas: string[];
   rowLimit: number;
   historyLimit: number;

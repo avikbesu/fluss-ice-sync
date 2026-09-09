@@ -84,7 +84,7 @@ flowchart TB
         UI["React SPA<br/>Query tab (default) / Chat tab (flagged)"]
     end
 
-    subgraph UISVC["fluss-ice-sync-ui (NEW)"]
+    subgraph UISVC["flino-ui (NEW)"]
         BFF["Node.js BFF<br/>Express + trino-client"]
     end
 
@@ -123,7 +123,7 @@ At a high level:
 ## Repository Layout
 
 ```
-fluss-ice-sync/
+flino/
 ├── app/
 │   ├── sync/                    # unchanged from v0/v1
 │   └── ui/                      # NEW
@@ -154,7 +154,7 @@ fluss-ice-sync/
 │   │   │                                  # tiering job, and Trino -- lakehouse.yml/trino.yml
 │   │   │                                  # (v1) were later folded in here, and trino/Dockerfile
 │   │   │                                  # dropped (trino-coordinator now uses `image:` directly)
-│   │   └── docker-compose.app.yml         # gains fluss-ice-sync-ui service (NEW)
+│   │   └── docker-compose.app.yml         # gains flino-ui service (NEW)
 │   ├── resources/
 │   │   ├── spec/                # SyncSource *.yaml (config/resources/*.yaml directly, in v1)
 │   │   └── branding/             # NEW: UI logo asset(s), bind-mounted at /branding
@@ -186,9 +186,9 @@ fluss-ice-sync/
   directly under `config/resources/*.yaml` — moved once `config/resources/`
   also started holding `branding/` (this doc's logo asset), so the
   SyncSource specs needed their own subdirectory rather than being mixed in
-  at the same level as unrelated UI assets. `FlussSyncConfigLoader` scans
+  at the same level as unrelated UI assets. `FlinoConfigLoader` scans
   its target directory non-recursively, so `docker-compose.app.yml`'s mount
-  points `fluss-ice-sync`'s `/config/resources` at `config/resources/spec/`
+  points `flino`'s `/config/resources` at `config/resources/spec/`
   specifically, not the `config/resources/` parent.
 * `config/apps/ui/application.yaml` mirrors v0/v1's existing
   `config/apps/sync/application.yaml` pattern: one YAML file per app under
@@ -198,11 +198,11 @@ fluss-ice-sync/
   compose file.** v1 originally gave Trino and the tiering job their own
   files because each was, at the time, a genuinely separate concern
   someone might want running (or not) independently of a plain
-  fluss-ice-sync dev loop — though those files were later folded into
+  flino dev loop — though those files were later folded into
   `docker-compose.infra.yml` anyway (see above), since in practice that
   independence was never exercised and one file per Docker-Compose-only
   concern didn't earn its keep. The UI never had that property to begin
-  with — it's an application-layer consumer of the same `fluss-ice-sync`
+  with — it's an application-layer consumer of the same `flino`
   "app" concern `docker-compose.app.yml` already groups, and it has a hard
   runtime dependency on Trino regardless, so there's no meaningful "bring
   up the app without the UI" scenario worth a separate file.
@@ -307,6 +307,54 @@ fluss-ice-sync/
   [Goals](#goals); chat transcript retention (if any beyond the current
   page session) is left to [Open Questions](#open-questions).
 
+### Ask and Config tabs
+
+* Originally shipped as `nl-ui`, a fully separate standalone SPA with no
+  BFF — it called `nl-api` and the config service (`app/config`) directly
+  from the browser, using host-mapped ports. That design had a real,
+  documented problem: neither backend sends CORS headers, so it was
+  CORS-blocked as deployed. These two tabs were folded into this SPA and
+  BFF instead, reusing the exact same "BFF proxies, browser stays
+  same-origin" shape as the Query/Chat tabs above rather than patching CORS
+  onto two more backends.
+* The BFF proxies both services generically (`src/proxy.ts`,
+  `routes/nlApiProxy.ts`, `routes/configServiceProxy.ts`) rather than
+  re-shaping their responses the way `routes/query.ts`/`chat.ts` do for
+  Trino — nl-api and the config service are already the UI-facing contract
+  (unlike raw Trino), so there's nothing to add server-side beyond keeping
+  the browser off their origins directly. Mounted at `/api/nl` and
+  `/api/config-service`; see `config/apps/ui/application.yaml`'s
+  `nlApi.baseUrl`/`configService.baseUrl` (in-network service DNS names).
+* **Ask tab**: only rendered when `GET /api/config` reports
+  `askEnabled: true` (`config.nlApi.askEnabled`, off by default) — mirrors
+  Chat's `chatEnabled` gate above, since `/ask` calls an LLM and costs real
+  money per call. This is a separate flag from nl-api's own
+  `NLAPI_CLAUDE_ENABLED` toggle; both need to be on for the tab to actually
+  work end-to-end (`docker-compose.app.yml` defaults both from the same
+  `NL_API_ASK_ENABLED` host env var for convenience).
+* **Config tab**: always rendered, like Query — authoring table-config
+  context has no LLM cost of its own (the config service never calls an
+  LLM; see `app/config/README.md`). The list isn't only what's been
+  authored through the wizard, though: the config service's own
+  `SyncSpecConfigSeeder` auto-imports a starter config for every
+  lakehouse-enabled SyncSource spec (`config/resources/spec/*.yaml`) that
+  doesn't already have one under its name, so the tab isn't empty on a
+  fresh deployment or after a `make reset` — see `app/config/README.md`'s
+  "SyncSource spec auto-import" section for exactly what gets seeded
+  (schema/destination wiring, not a real business description) and its
+  one-way, name-matched idempotency.
+* `nlApiClient.ts` calls nl-api's real `POST /api/v1/ask` (NL-only, no
+  raw-SQL passthrough) via the bff proxy, scoped by the selected config's
+  `destination.catalog`/`schema` when one is active — this is the config
+  service's other integration point beyond `trino-nl-api` (see
+  `app/config/README.md`'s "Integrating with trino-nl-api"), now actually
+  wired end-to-end through the web client rather than just documented.
+* Query history and saved queries for the Ask tab live entirely in the
+  browser (IndexedDB), independent of the Query tab's own history — see
+  `src/storage/`. Configs authored (or auto-seeded) on the Config tab are
+  server-side, shared across whoever uses this UI, per the config
+  service's own storage model.
+
 ## Security & Privacy
 
 * **The BFF is a privileged credential holder, not a pass-through** — it
@@ -371,8 +419,8 @@ flowchart TB
             TC["trino-coordinator"]
         end
         subgraph APPCOMPOSE["docker-compose.app.yml (v0, gains a service)"]
-            FS["fluss-ice-sync"]
-            UISVC["fluss-ice-sync-ui (NEW)<br/>(BFF serves built React SPA + /api/*)"]
+            FS["flino"]
+            UISVC["flino-ui (NEW)<br/>(BFF serves built React SPA + /api/*)"]
         end
     end
 
@@ -382,12 +430,12 @@ flowchart TB
 ```
 
 * No change to `make up`'s `-f` list — `docker-compose.app.yml` is already
-  in it, and `fluss-ice-sync-ui` is just a second service defined there
-  alongside the existing `fluss-ice-sync` service. `make down`/`make logs`
-  need no changes either, though `logs` still targets `fluss-ice-sync` by
-  name — a `make ui-logs` (`docker compose logs -f fluss-ice-sync-ui`)
+  in it, and `flino-ui` is just a second service defined there
+  alongside the existing `flino` service. `make down`/`make logs`
+  need no changes either, though `logs` still targets `flino` by
+  name — a `make ui-logs` (`docker compose logs -f flino-ui`)
   target is a small addition alongside it.
-* `fluss-ice-sync-ui` is published on the host at a new port (e.g.
+* `flino-ui` is published on the host at a new port (e.g.
   `8092`, following v1's `8090` for Trino), depends on
   `trino-coordinator` being healthy (which lives in
   `docker-compose.infra.yml` — a cross-compose-file `depends_on` works the
@@ -395,7 +443,7 @@ flowchart TB
   merges both into one Compose project), and reads
   `config/apps/ui/application.yaml` plus environment
   (`TRINO_COORDINATOR_URL`, `CHAT_ENABLED`, LLM API key) the same way
-  `fluss-ice-sync` reads `application.yaml` in v0.
+  `flino` reads `application.yaml` in v0.
 
 ## Rollout Plan
 
@@ -410,7 +458,7 @@ flowchart TB
    (see [Security & Privacy](#security--privacy)) has been reviewed and
    accepted for whichever LLM provider is configured.
 
-**Rollback:** `docker compose stop fluss-ice-sync-ui` (or removing the
+**Rollback:** `docker compose stop flino-ui` (or removing the
 service from `docker-compose.app.yml`) removes the UI entirely; it holds no
 state Trino/Fluss depend on and performs no writes, so rollback is
 non-destructive to the rest of the stack.

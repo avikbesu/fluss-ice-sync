@@ -5,7 +5,7 @@ plugins {
 }
 
 application {
-    mainClass = 'com.flusssync.Main'
+    mainClass = 'com.flino.Main'
     // fluss-client uses Apache Arrow internally, which needs reflective
     // access to java.nio.Buffer's internals on Java 17+; without this the
     // JVM throws InaccessibleObjectException the first time a row is

@@ -18,6 +18,8 @@ export type AppConfig = {
     apiKeyEnv: string;
   };
   branding: { appName: string; logoUrl: string | null };
+  nlApi: { baseUrl: string; askEnabled: boolean };
+  configService: { baseUrl: string };
 };
 
 const CONFIG_PATH = process.env.CONFIG_PATH ?? "/config/application.yaml";
@@ -60,8 +62,15 @@ export function loadConfig(): AppConfig {
       apiKeyEnv: raw.chat?.apiKeyEnv ?? "ANTHROPIC_API_KEY",
     },
     branding: {
-      appName: process.env.APP_NAME || raw.branding?.appName || "fluss-ice-sync",
+      appName: process.env.APP_NAME || raw.branding?.appName || "flino",
       logoUrl: process.env.LOGO_URL || raw.branding?.logoUrl || null,
+    },
+    nlApi: {
+      baseUrl: process.env.NL_API_BASE_URL ?? raw.nlApi?.baseUrl,
+      askEnabled: parseBoolean(process.env.NL_ASK_ENABLED, raw.nlApi?.askEnabled),
+    },
+    configService: {
+      baseUrl: process.env.CONFIG_SERVICE_BASE_URL ?? raw.configService?.baseUrl,
     },
   };
 

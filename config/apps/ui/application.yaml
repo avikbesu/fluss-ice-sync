@@ -1,4 +1,4 @@
-# Config for fluss-ice-sync-ui's BFF. Mounted read-only into the container
+# Config for flino-ui's BFF. Mounted read-only into the container
 # at /config/application.yaml, matching config/apps/sync/application.yaml's
 # pattern of one YAML file per app rather than baking config into the image.
 #
@@ -10,12 +10,12 @@ server:
   port: 8080
 
 # Shown top-left in the header. logoUrl is served by the BFF from whatever
-# is mounted at /branding (see docker-compose.app.yml's fluss-ice-sync-ui
+# is mounted at /branding (see docker-compose.app.yml's flino-ui
 # volumes) -- swap the logo by replacing config/resources/branding/logo.svg
 # (or pointing logoUrl at a different mounted file/external URL entirely),
 # no rebuild required. Leave logoUrl blank to fall back to text-only (appName).
 branding:
-  appName: fluss-ice-sync
+  appName: flino
   logoUrl: /branding/logo.svg
 
 trino:
@@ -53,3 +53,19 @@ chat:
   provider: anthropic
   model: claude-sonnet-5
   apiKeyEnv: ANTHROPIC_API_KEY
+
+# The Ask/Config tabs proxy to these two services (docker-compose.app.yml
+# sets baseUrl to their in-network service names) rather than the browser
+# calling them directly -- see doc/design/v2-web-ui-design.md's "Ask and
+# Config tabs" section for why. askEnabled mirrors chat.enabled above: /ask
+# calls an LLM and costs real money per call, so this is a distinct flag
+# from nl-api's own NLAPI_CLAUDE_ENABLED toggle -- both need to be on for
+# the Ask tab to actually work end-to-end (docker-compose.app.yml defaults
+# both from the same NL_API_ASK_ENABLED host env var for convenience, but
+# they can be set independently).
+nlApi:
+  baseUrl: http://flino-nl-api:8080
+  askEnabled: false
+
+configService:
+  baseUrl: http://flino-config:8080

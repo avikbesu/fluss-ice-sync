@@ -5,7 +5,9 @@ out/
 .idea/
 /watch/
 /state/
+/data/
 config/docker/.env
 node_modules/
 app/ui/*/dist/
 app/ui/bff/web-dist/
+.docker-gradle-cache/

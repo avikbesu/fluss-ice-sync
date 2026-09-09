@@ -1,0 +1,22 @@
+# Config for the config service (app/config). Mounted read-only into
+# the container at /config/application.yaml, matching every other app's
+# existing "one YAML file per app" pattern -- see
+# app/config/src/main/resources/application.yml for the baked-in
+# defaults this overrides.
+#
+# `config.store.directory` is the one setting that actually matters here
+# for this repo's deployment -- it must point at wherever
+# docker-compose.app.yml mounts the flino-config-data volume
+# (see that file), not the application.yml default.
+#
+# `config.sync-specs.directory` points at the same SyncSource spec files
+# app/sync itself reads (config/resources/spec/, mounted read-only here at
+# /sync-specs -- see docker-compose.app.yml) so SyncSpecConfigSeeder can
+# auto-import a starter config for every lakehouse-enabled source. Unset
+# (the application.yml default) disables this for a plain local run.
+
+config:
+  store:
+    directory: /data/configs
+  sync-specs:
+    directory: /sync-specs

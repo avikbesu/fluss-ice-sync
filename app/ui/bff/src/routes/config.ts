@@ -7,6 +7,7 @@ export function configRouter(config: AppConfig): Router {
   router.get("/config", (_req, res) => {
     res.json({
       chatEnabled: config.chat.enabled,
+      askEnabled: config.nlApi.askEnabled,
       schemas: config.trino.schemas,
       rowLimit: config.query.rowLimit,
       historyLimit: config.history.limit,

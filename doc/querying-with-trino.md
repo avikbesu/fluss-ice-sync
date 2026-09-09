@@ -1,4 +1,4 @@
-# Querying fluss-ice-sync data with Trino
+# Querying flino data with Trino
 
 This is the practical how-to for reading tiered Fluss tables via Trino in
 this project's Docker Compose setup. For the design/architecture behind
@@ -12,9 +12,9 @@ guarantees), see
 make up
 ```
 
-This starts Fluss, fluss-ice-sync, the Flink cluster, Trino, and the shared
+This starts Fluss, flino, the Flink cluster, Trino, and the shared
 Postgres-backed Iceberg catalog. Wait for it to settle — `docker compose ps`
-should show `fluss-ice-sync` and `trino-coordinator` as `healthy`.
+should show `flino` and `trino-coordinator` as `healthy`.
 
 ## 2. Start the Lakehouse Tiering Service
 
@@ -128,4 +128,4 @@ crm-read-role ...` form instead (or editing the Makefile target).
 
 To confirm data actually reached Fluss in the first place (before blaming
 Trino), watch `watch/partner-orders/_processed/` for the file to show up
-there — that means fluss-ice-sync finished streaming it.
+there — that means flino finished streaming it.

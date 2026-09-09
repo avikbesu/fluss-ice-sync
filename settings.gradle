@@ -1,3 +1,5 @@
-rootProject.name = 'fluss-ice-sync'
+rootProject.name = 'flino'
 
 include ':app:sync'
+include ':app:nl-api'
+include ':app:config'

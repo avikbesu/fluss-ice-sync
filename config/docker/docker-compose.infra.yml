@@ -103,11 +103,11 @@ services:
       - fluss-remote-data:/tmp/fluss/remote-data
     healthcheck:
       # No HTTP health endpoint on Fluss's own servers (unlike
-      # fluss-ice-sync's /healthz) -- this just confirms the FLUSS
+      # flino's /healthz) -- this just confirms the FLUSS
       # listener port is accepting connections, using bash's /dev/tcp
       # since the base image has no nc/curl-to-raw-TCP option. Good
       # enough to close the gap that let tablet-server (and, before that,
-      # fluss-ice-sync) start against a coordinator that wasn't listening
+      # flino) start against a coordinator that wasn't listening
       # yet (the "known startup race" doc/querying-with-trino.md's
       # troubleshooting table documents working around by hand).
       # Must probe the *bind.listeners* hostname (coordinator-server),
@@ -155,7 +155,7 @@ services:
   # Was config/docker/docker-compose.lakehouse.yml, folded in here since
   # it has no independent-startup use case distinct from the rest of this
   # file -- it depends on lakehouse-warehouse-init above and is itself a
-  # dependency-free addition, unlike fluss-ice-sync-ui (docker-compose.app.yml),
+  # dependency-free addition, unlike flino-ui (docker-compose.app.yml),
   # which has a real reason to stay a separate file (see that file).
   flink-jobmanager:
     build:

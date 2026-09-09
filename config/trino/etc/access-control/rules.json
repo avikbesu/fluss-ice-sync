@@ -1,17 +1,25 @@
 {
   "catalogs": [
     {
-      "user": "sales-read-role|crm-read-role",
+      "user": "sales-read-role|crm-read-role|nl-api-read-role",
       "catalog": "iceberg",
       "allow": "all"
+    },
+    {
+      "user": "nl-api-read-role",
+      "catalog": "(tpch|system)",
+      "allow": "read-only"
     }
   ],
   "schemas": [
     { "user": "sales-read-role", "catalog": "iceberg", "schema": "sales", "owner": false },
-    { "user": "crm-read-role", "catalog": "iceberg", "schema": "crm", "owner": false }
+    { "user": "crm-read-role", "catalog": "iceberg", "schema": "crm", "owner": false },
+    { "user": "nl-api-read-role", "catalog": "iceberg", "schema": ".*", "owner": false }
   ],
   "tables": [
     { "user": "sales-read-role", "catalog": "iceberg", "schema": "sales", "table": ".*", "privileges": ["SELECT"] },
-    { "user": "crm-read-role", "catalog": "iceberg", "schema": "crm", "table": ".*", "privileges": ["SELECT"] }
+    { "user": "crm-read-role", "catalog": "iceberg", "schema": "crm", "table": ".*", "privileges": ["SELECT"] },
+    { "user": "nl-api-read-role", "catalog": "iceberg", "schema": ".*", "table": ".*", "privileges": ["SELECT"] },
+    { "user": "nl-api-read-role", "catalog": "(tpch|system)", "schema": ".*", "table": ".*", "privileges": ["SELECT"] }
   ]
 }

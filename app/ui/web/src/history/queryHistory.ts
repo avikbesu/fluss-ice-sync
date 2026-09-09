@@ -8,7 +8,7 @@ export type HistoryEntry = {
   timestamp: number;
 };
 
-const STORAGE_KEY = "fluss-ice-sync-ui.query-history.v1";
+const STORAGE_KEY = "flino-ui.query-history.v1";
 // Keep localStorage bounded regardless of how big a query's actual result
 // was -- see doc/design/v2-web-ui-design.md's "Query history" section. The
 // entry *count* cap is configurable (config/apps/ui/application.yaml's

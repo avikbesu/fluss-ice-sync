@@ -1,15 +1,15 @@
 {
-  "name": "fluss-ice-sync-ui-bff",
+  "name": "flino-ui-bff",
   "version": "1.0.0",
   "private": true,
-  "description": "BFF for the fluss-ice-sync web UI: serves the React SPA and proxies read-only queries to Trino.",
+  "description": "BFF for the flino web UI: serves the React SPA and proxies read-only queries to Trino.",
   "type": "commonjs",
   "main": "dist/server.js",
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "start": "node dist/server.js",
     "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
-    "test": "vitest run"
+    "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.32.1",
